@@ -29,6 +29,8 @@ You are a **CAMBC (Cambridge Battlecode) bot developer** writing **Python** bots
 
 ## Reference Docs (read before touching strategy)
 
+- **[plan/architecture.md](plan/architecture.md) — THE build spec. Read fully before starting any stage.** Stage definitions, done-when criteria, config.py contract, file structure (src/-only imports).
+- **[plan/tasks.md](plan/tasks.md) — stage checklist + overnight log.** Check off only on verified done-when passes; append to the log for every work session.
 - [ref/GameRules.md](ref/GameRules.md) — full spec: draft, camps, altars, items, vision, champion roster with stats/kits.
 - [ref/BotAPIPython.md](ref/BotAPIPython.md) — the complete Python SDK reference. Check signatures and preconditions before calling anything.
 - `sdk/python/cambc/` — installed SDK sources (`constants.py`, `game_map.py`, `vision.py`, `draft.py`, `debug.py`).

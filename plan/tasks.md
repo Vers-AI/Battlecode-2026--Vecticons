@@ -1,0 +1,32 @@
+# Vecticons Sprint 1 — Task Board
+
+Owner: Drekken. Orchestrator: Praxis. Coder: opencode sessions per stage.
+Deadline: **Sprint 1 locks Sun 18 Oct 23:59 BST** — submission upload is the owner's manual step.
+
+Rules for the coding AI:
+- Read `plan/architecture.md` fully before starting a stage. It is the spec; this file tracks state.
+- Check off a stage ONLY when its "Done when" criteria pass, verified with real cambc runs (not opinion).
+- Commit after each stage passes. Never edit `plan/` spec content without noting the change in the commit message.
+- Never touch YouTube, external services, or the submission portal. Repo and local matches only.
+
+## Stages
+
+- [ ] **Stage 0 — Draft memory format** (spec frozen in architecture.md; no code — format lives in draft.py from Stage 1)
+- [ ] **Stage 1 — Draft manager** (pick order + draft memory write + precompute)
+  - Done when: 17 maps, zero exceptions, team_size() logged, ≤1,024 B submitted, `cambc build --release` passes
+- [ ] **Stage 2 — Knowledge manager + baseline loop**
+  - Sub-task: harness first — run one `--statistics stats.json --json` match, record actual field names in architecture.md §Stage 2, restate criteria
+  - Done when: 10 named maps (ambush…lanes), zero exceptions, ≥1 clear→capture→tribute cycle per match
+- [ ] **Stage 3 — Utility layer**
+  - First: copy Stage 2 bot.py → bot_baseline.py
+  - Done when: 17-map record ≥ baseline record; per-map table in commit message
+
+## Post-Sprint (not tonight)
+
+- [ ] Telemetry v2 (PIG_Bot viewer extension)
+- [ ] Primer + livestream embed ("Top 3 Things You Should Know")
+- [ ] Repo README
+
+## Overnight log (append-only; orchestrator and workers write here)
+
+- 2026-10-17 22:30 — Setup: plan/ created, spec mirrored from vault, scaffold cleanup pending, Stage 1 session queued. —Praxis
