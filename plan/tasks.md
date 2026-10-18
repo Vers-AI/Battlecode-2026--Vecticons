@@ -31,3 +31,4 @@ Rules for the coding AI:
 
 - 2026-10-17 22:30 — Setup: plan/ created, spec mirrored from vault, scaffold cleanup pending, Stage 1 session queued. —Praxis
 - 2026-10-17 23:05 — Session start: Stage 1 in progress. Pick order Ryth→Stellar→Vesper Vale [+Varg,Willow if team_size==5], Stage 0 draft memory layout. —opencode
+- 2026-10-17 23:25 — Orchestrator wake: Stage 1 VERIFIED independently (17/17 maps, 0 exceptions, team_size logged each draft, payloads 18-39 B, build --release OK) at 8c13981. Stage 2 in progress: worker alive under opencode service, 10-map harness 6/10 pass (ambush/collision/contest/corners fail - kill-but-no-pickup), iterating. Pushing branch. -Praxis
