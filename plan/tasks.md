@@ -30,3 +30,4 @@ Rules for the coding AI:
 ## Overnight log (append-only; orchestrator and workers write here)
 
 - 2026-10-17 22:30 — Setup: plan/ created, spec mirrored from vault, scaffold cleanup pending, Stage 1 session queued. —Praxis
+- 2026-10-17 23:05 — Session start: Stage 1 in progress. Pick order Ryth→Stellar→Vesper Vale [+Varg,Willow if team_size==5], Stage 0 draft memory layout. —opencode
