@@ -212,17 +212,20 @@ def visible_killable_camps(snap) -> list:
 
     Excludes Monolith (20,000 HP trap — architecture.md "Monolith trap").
     Excludes respawning groups (no monsters). Matches Stage 2 spec exactly.
+
+    Performance: the Monolith check uses the per-group cache in snap.group_meta
+    so we don't have to call ``group.camps()`` per visible group per turn.
     """
     _ensure_resolved()
-    from cambc import CampType
     result = []
+    meta = getattr(snap, "group_meta", {}) or {}
     for group in snap.visible_camp_groups:
-        # Exclude Monolith.
+        # Exclude Monolith (cheap cache lookup).
         try:
-            if any(c.kind() == CampType.MONOLITH for c in group.camps()):
+            if meta.get(id(group), {}).get("is_monolith", False):
                 continue
         except Exception:
-            continue
+            pass
         # Skip respawning groups (no monsters on the map).
         try:
             if isinstance(group.state(), game_map.CampGroupRespawning):
@@ -245,16 +248,18 @@ def reward_available_camp(snap):
     Standing on one of its spawn tiles starts the 5-round capture timer
     (architecture.md Stage 2 baseline). Monolith excluded even when reward
     available - it is too costly in HP to fight.
+
+    Performance: the Monolith check uses the per-group cache in snap.group_meta.
     """
     _ensure_resolved()
-    from cambc import CampType
     me_pos = snap.position
+    meta = getattr(snap, "group_meta", {}) or {}
     for group in snap.visible_camp_groups:
         try:
-            if any(c.kind() == CampType.MONOLITH for c in group.camps()):
+            if meta.get(id(group), {}).get("is_monolith", False):
                 continue
         except Exception:
-            continue
+            pass
         # RewardAvailable means the group's monsters are all dead. We try
         # to read group.state() which raises if any spawn tile is not in vision.
         try:
@@ -277,18 +282,20 @@ def zone_killable_camps(snap) -> list:
     Used when no visible killable camp exists. Distance is Manhattan from
     the bot's current tile (not spawn) so the bot actually walks toward the
     closest reachable camp rather than chasing a static draft-time target.
+
+    Performance: the Monolith check uses the per-group cache in snap.group_meta.
     """
-    from cambc import CampType
     me_pos = snap.position
+    meta = getattr(snap, "group_meta", {}) or {}
     result = []
     for group in snap.camp_groups:
         if group in snap.visible_camp_groups:
             continue
         try:
-            if any(c.kind() == CampType.MONOLITH for c in group.camps()):
+            if meta.get(id(group), {}).get("is_monolith", False):
                 continue
         except Exception:
-            continue
+            pass
         # Skip respawning groups - no monsters until timer counts down.
         try:
             if isinstance(group.state(), game_map.CampGroupRespawning):

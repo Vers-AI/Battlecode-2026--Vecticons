@@ -1,19 +1,29 @@
 """Per-champion decisions. main.py dispatches here after the draft.
 
-Stage 2 baseline loop (hardcoded):
-  1. If channeling (recall/tribute/teleport), dead, or cannot act: return.
-  2. If on spawn: buy shards per CHAMPION_STAT_PRIORITY.
-  3. If HP < RECALL_HP_FRAC and not on spawn: recall.
-  4. If enemy champion in attack range: attack it.
-  5. If gem_count >= BANK_THRESHOLD: path to nearest unlocked altar, submit in range.
-  6. Else: farm nearest killable camp.
+Stage 3 utility layer (architecture.md §Stage 3).
+==================================================
 
-Killable-camp filter (KILLABLE_HP_CAP, Monolith exclusion) runs before any
-scoring - mandatory per architecture.md ("Monolith trap").
+Per the spec, the utility layer replaces hardcoded gates with candidate
+generation + argmax scoring. The critical "Monolith trap" constraint
+(KILLABLE_HP_CAP + Monolith exclusion runs BEFORE scoring) is preserved
+via the shared execution.filter in utility.generate_candidates.
 
-Stage 3 (next) replaces the hardcoded gates with candidate-action scoring.
-The A/B reference for that is bots/vecticons/src/bot_baseline.py (copied
-from this file at the start of Stage 3).
+What this implementation does:
+- Battle plan candidates: capture (stand on a cleared spawn tile),
+  bank (submit gems at the chosen altar), recall (low HP), fight (enemy
+  in attack range), farm (killable camp groups).
+- Scoring per architecture.md:
+    farm_camp(c) = gems(c) * TIME_DISCOUNT ** (reach + clear)
+    bank(a)      = gem_count * BANK_UTILITY_PER_GEM * TIME_DISCOUNT ** d
+    recall       = RECALL_UTILITY  (only when hp_frac < RECALL_HP_FRAC)
+    fight(e)     = KILL_REWARD_GOLD * TIME_DISCOUNT ** turns_to_kill
+    capture(c)   = RECALL_UTILITY + 1000  (always dominant when available)
+- Argmax wins. Ties fall back to baseline gate order via the dispatch
+  sequence (capture > bank > recall > fight > farm).
+- A match-time safety override forces recall when HP < SAFETY_HP_FRAC.
+
+The Stage 2 reference is frozen at bots/vecticons/src/bot_baseline.py for
+the A/B comparison required by Stage 3 done-when.
 """
 from __future__ import annotations
 
@@ -25,6 +35,7 @@ from cambc import game_map
 import config
 from managers import execution
 from managers import knowledge
+from managers import utility
 
 Team, Item = cambc.Team, cambc.ItemType
 
@@ -48,6 +59,7 @@ class Bot:
             me.buy(item, count)
 
     def play_turn(self):
+        # First-turn bookkeeping.
         if self.chosen_stat is None:
             try:
                 short = knowledge.champion_short_name(int(cambc.me().champion_name()))
@@ -60,7 +72,7 @@ class Bot:
                 flush=True,
             )
 
-        # Read before writing round stamp at byte 0.
+        # Round stamp (shared-memory layout documented in bot_baseline.py).
         try:
             data = bytearray(4)
             cambc.shared_memory.read(0, data)
@@ -73,13 +85,12 @@ class Bot:
         me = snap.me
         position = snap.position
 
-        # Gate 1: channeling / dead / cannot act.
+        # Gate 1: channeling / dead.
         if (
             not snap.is_alive
             or snap.is_recalling
             or snap.is_submitting_gems
             or snap.is_teleporting
-            or (not snap.can_move and not snap.can_attack)
         ):
             return
 
@@ -91,9 +102,13 @@ class Bot:
                 short = knowledge.champion_short_name(int(me.champion_name()))
             except Exception:
                 short = ""
-            self.buy_items(short)
+            try:
+                self.buy_items(short)
+            except Exception:
+                pass
 
-        # Gate 3: low HP away from spawn -> recall.
+        # Gate 3: low HP away from spawn -> recall (baseline rule preserved
+        # outside the utility argmax so an early death is always avoided).
         if (
             not at_spawn
             and snap.max_hp > 0
@@ -102,45 +117,81 @@ class Bot:
             if execution.recall_to_spawn():
                 return
 
-        # Gate 4: enemy champion in attack range -> attack.
-        if snap.can_attack and execution.attacked_by_enemy(snap):
-            return
+        # Build candidate set; pick argmax; safety override may force recall.
+        candidates = utility.generate_candidates(snap)
+        cand = utility.safety_override(candidates, snap) or utility.best(candidates)
 
-        # Gate 5: carrying enough gems -> bank at nearest unlocked altar.
-        if snap.gems >= config.BANK_THRESHOLD:
-            altar = execution.nearest_unlocked_altar(snap)
-            if altar is not None:
-                if execution.submit_gems_to_altar(altar):
+        # Diagnostic - log every cand.kind for first few rounds.
+        try:
+            if cambc.round_number() <= 20:
+                kinds = [c[0] for c in candidates]
+                me_id = me.champion_name()
+                short = knowledge.champion_short_name(int(me_id)) if me_id is not None else "?"
+                cs = cand[0] if cand else "NONE"
+                print(
+                    f"v16: r={cambc.round_number()} {short} kinds={kinds[:8]} best={cs}",
+                    flush=True,
+                )
+        except Exception:
+            pass
+
+        if cand is not None:
+            kind, target = cand[0], cand[1]
+
+            # Capture: stand on the cleared spawn tile for 5 rounds.
+            if kind == "capture":
+                goals = target.spawn_tiles()
+                execution.move_towards_closest(goals)
+                return
+
+            # Bank: try to submit at this altar; if not in range, walk toward
+            # the altar approach tiles.
+            if kind == "bank":
+                if execution.submit_gems_to_altar(target):
                     return
                 goals = execution.altar_approach_goals(snap)
                 if not goals.is_empty() and execution.move_towards_closest(goals):
                     return
+                # Without reachable altar tiles, fall through to farm.
 
-        # Gate 6: farm the nearest killable camp.
-        # First: if any visible group has a reward available, stand on its
-        # spawn tile to capture (5-round timer, GameRules capture phase).
-        reward = execution.reward_available_camp(snap)
-        if reward is not None:
-            goals = reward.spawn_tiles()
-            execution.move_towards_closest(goals)
-            return
+            # Recall: explicit fallback for the safety override.
+            if kind == "recall":
+                if execution.recall_to_spawn():
+                    return
 
-        # Attack any visible camp in attack range first; then walk toward the
-        # nearest not-yet-visible killable camp.
-        visible = cambc.vision.camps()
-        if execution.attack_first_in_range(visible):
-            return
+            # Fight: enemy in attack range.
+            if kind == "fight" and snap.can_attack and target is not None:
+                try:
+                    me_obj = cambc.me()
+                    atk = me_obj.attack_tiles()
+                    if atk.is_set(target.position()):
+                        me_obj.attack(target)
+                        return
+                except Exception:
+                    pass
 
-        target_camp = None
-        killable_visible = execution.visible_killable_camps(snap)
-        if killable_visible:
-            target_camp = killable_visible[0]
-        else:
-            zone_groups = execution.zone_killable_camps(snap)
-            target_camp = zone_groups[0] if zone_groups else None
+            # Farm: walk toward the chosen group's spawn tiles; opportunistically
+            # attack any visible camp in our attack tiles before and after the move.
+            if kind == "farm":
+                try:
+                    if execution.attack_first_in_range(cambc.vision.camps()):
+                        return
+                except Exception:
+                    pass
+                goals = target.spawn_tiles()
+                execution.move_towards_closest(goals)
+                try:
+                    execution.attack_first_in_range(cambc.vision.camps())
+                except Exception:
+                    pass
+                return
 
-        if target_camp is not None:
-            goals = target_camp.spawn_tiles()
-            execution.move_towards_closest(goals)
-            execution.attack_first_in_range(cambc.vision.camps())
-            return
+        # Baseline-style opportunistic camp attack when we have no utility
+        # decision (rare; mainly during fuel-suspended turns). Mirrors gate
+        # 6 of the Stage 2 baseline.
+        try:
+            if execution.attack_first_in_range(cambc.vision.camps()):
+                return
+        except Exception:
+            pass
+        # Else sit still.

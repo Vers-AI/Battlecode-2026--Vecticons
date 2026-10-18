@@ -20,9 +20,30 @@ RECALL_HP_FRAC: float = 0.35      # from starter bot heuristic.
 KILLABLE_HP_CAP: int = 5_000      # PLACEHOLDER. > elk pack total HP, < Monolith 20k. Tuned so
                                    # wolf/elk groups clear while Monolith stays excluded.
 DEATH_RISK_BASE: float = 0.05     # PLACEHOLDER. unused Sprint 1.
-BANK_UTILITY_PER_GEM: float = 1.0 # PLACEHOLDER.
-RECALL_UTILITY: float = 50.0      # PLACEHOLDER.
+BANK_UTILITY_PER_GEM: float = 100.0 # PLACEHOLDER. Tuned so bank dominates farm once gems>0,
+                               # matching the Stage 2 baseline's "bank immediately" semantics.
+                               # (With 1 gem and BANK_UTILITY_PER_GEM=100, bank score = 100; any
+                               # farm candidate ≤ 100 at typical d+clear ranges.)
+RECALL_UTILITY: float = 200.0     # PLACEHOLDER. Tuned so recall at hp_frac<RECALL_HP_FRAC dominates
+                              # bank/farm: a low-HP bot should never bank or farm.
 KILL_REWARD_GOLD: int = 50        # GameRules "When a champion dies".
+
+# Stage 3 utility-layer tuning (architecture.md §Stage 3).
+# Safety floor under which low-HP capping overrides the utility argmax
+# (bot retreats and recalls before the pack wakes up on us).
+SAFETY_HP_FRAC: float = 0.25       # PLACEHOLDER. Below this HP fraction the recall candidate always wins.
+# Per-turn candidate-pool caps. The utility layer's per-turn cost is bounded by
+# (VISIBLE_CAP + ZONE_CAP) farm candidates plus the constant-cost capture/bank/
+# recall/fight candidates. Without these caps, v15 burned fuel in proportion to
+# the full map's group count (one ``group.camps()`` call per group per turn).
+FARM_VISIBLE_CAP: int = 3          # PLACEHOLDER. Top-N nearest killable visible camps considered.
+FARM_ZONE_CAP: int = 3             # PLACEHOLDER. Top-N nearest unseen zone camps considered.
+# Conservative flat gem estimates for the score (spec: gems × TIME_DISCOUNT^turns).
+# Visible killable groups: monsters are pre-filtered ≤ KILLABLE_HP_CAP; one cycle
+# usually clears one wolf/elk pack plus a gem cluster (~50-90 gems). Use 60.
+# Unseen zone groups: large uncertainty discount.
+FARM_VISIBLE_GEM_ESTIMATE: int = 60   # PLACEHOLDER. Per farm candidate.
+FARM_ZONE_GEM_ESTIMATE: int = 30      # PLACEHOLDER. Per farm candidate (unseen).
 
 MONOLITH_HP: int = 20_000         # GameRules camp table (Monolith total HP).
 

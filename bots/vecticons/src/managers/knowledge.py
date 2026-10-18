@@ -53,6 +53,9 @@ class Snapshot:
     # Vision-derived.
     visible_camp_groups: tuple
 
+    # Per-group cached metadata (is_monolith). Filled from the bot's map cache.
+    group_meta: dict
+
 
 def _me_facts(me) -> Snapshot:
     return Snapshot(
@@ -73,6 +76,7 @@ def _me_facts(me) -> Snapshot:
         camp_groups=(),
         camp_zone_for_champion=0,
         visible_camp_groups=(),
+        group_meta={},
     )
 
 
@@ -128,13 +132,20 @@ def champion_short_name(champion_name_int: int) -> str:
 
 
 def _populate_map_cache(bot, snap) -> None:
-    """First-turn (2x fuel) cache: altars, spawns, camp groups, draft zone."""
+    """First-turn (2x fuel) cache: altars, spawns, camp groups, draft zone.
+
+    Also pre-computes per-group metadata (is_monolith, is_respawning, is_visible)
+    so per-turn killable filters don't have to call ``group.camps()`` / ``state()``
+    again. Without this cache, the Stage 3 utility layer was exceeding its
+    per-turn fuel budget on large maps (group-by-group camp iteration every turn).
+    """
     if bot.map_cache is not None:
-        altars, spawn, groups, zone = bot.map_cache
+        altars, spawn, groups, zone, group_meta = bot.map_cache
         snap.altars = altars
         snap.spawn_tile = spawn
         snap.camp_groups = groups
         snap.camp_zone_for_champion = zone
+        snap.group_meta = group_meta
         return
 
     altars = tuple(game_map.altars().positions())
@@ -143,11 +154,39 @@ def _populate_map_cache(bot, snap) -> None:
     groups = tuple(game_map.camp_groups())
     zone = _zone_id_for_me()
 
-    bot.map_cache = (altars, spawn, groups, zone)
+    # Pre-compute per-group metadata. This is the single expensive call that
+    # we never want to repeat on every play turn.
+    group_meta = _build_group_meta(groups)
+
+    bot.map_cache = (altars, spawn, groups, zone, group_meta)
     snap.altars = altars
     snap.spawn_tile = spawn
     snap.camp_groups = groups
     snap.camp_zone_for_champion = zone
+    snap.group_meta = group_meta
+
+
+def _build_group_meta(groups) -> dict:
+    """Compute is_monolith / is_respawning for every group, keyed by id(group)."""
+    from cambc import CampType
+    meta: dict = {}
+    for group in groups:
+        is_monolith = False
+        try:
+            for camp in group.camps():
+                try:
+                    if int(camp.kind()) == int(CampType.MONOLITH):
+                        is_monolith = True
+                        break
+                except Exception:
+                    continue
+        except Exception:
+            is_monolith = False
+        # Skip state() — it can raise if not in vision, and "respawning" is a
+        # temporary state that changes every match turn; safer to evaluate it
+        # lazily on demand in execution.zone_killable_camps.
+        meta[id(group)] = {"is_monolith": is_monolith}
+    return meta
 
 
 def snapshot(bot) -> Snapshot:
