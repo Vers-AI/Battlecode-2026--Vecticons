@@ -9,14 +9,12 @@ import cambc
 from cambc import game_map
 
 
-# Stage 0 frozen header (architecture.md Stage 0).
-_HEADER_VERSION = 1  # byte 0
-_HEADER_RESERVED = 0  # byte 3
+# Stage 0 frozen header.
+_HEADER_VERSION = 1
+_HEADER_RESERVED = 0
 
 
-# Sprint 1 pick order (architecture.md Stage 1).
-# Priority list extends by team size; the appendix matches the spec strictly:
-# team_size==5 appends Varg, then Willow.
+# Sprint 1 pick priority.
 _PRIORITY = (
     cambc.ChampionDraft.RYTH,
     cambc.ChampionDraft.STELLAR,
@@ -28,10 +26,7 @@ _PRIORITY = (
 
 def _pick_order() -> tuple[int, ...]:
     size = cambc.draft.team_size()
-    # team_size == 5 adds Willow (with Varg as the 4th slot in the priority list).
-    # team_size == 4 takes the first 4 of the priority list (Ryth, Stellar, Vesper Vale, Varg).
-    # team_size == 3 takes the first 3 (Ryth, Stellar, Vesper Vale).
-    return tuple(_PRIORITY[:max(3, min(size, len(_PRIORITY)))])
+    return tuple(_PRIORITY[: max(3, min(size, len(_PRIORITY)))])
 
 
 def _nearest_spawn_pos():
@@ -43,7 +38,6 @@ def _nearest_spawn_pos():
 
 
 def _camp_zone_nearest_spawn(spawn, groups) -> int:
-    """Return the index of the camp group nearest our first spawn tile."""
     if not groups or spawn is None:
         return 0
     best_zone = 0
@@ -61,21 +55,7 @@ def _camp_zone_nearest_spawn(spawn, groups) -> int:
 
 
 def _pack_draft_memory(picks):
-    """Build the Sprint 1 draft-memory payload per Stage 0 layout.
-
-    Header (4 bytes):
-      byte 0       format version
-      byte 1       pick count
-      byte 2       shared-memory byte-ownership bit map (Sprint 1: 0 - unused)
-      byte 3       reserved
-
-    Per-pick record (7 bytes each):
-      +0  champion id
-      +1  assigned altar index (0-based; 0xFF if no altars)
-      +2  camp zone id (nearest-camp-to-spawn split at draft)
-      +3  role id (0=clearer)
-      +4..6 reserved 0
-    """
+    """Build the Sprint 1 draft-memory payload per Stage 0 layout."""
     try:
         altars = game_map.altars().positions()
     except Exception:
@@ -90,10 +70,10 @@ def _pack_draft_memory(picks):
     arena = bytearray()
     arena.append(_HEADER_VERSION)
     arena.append(len(picks) & 0xFF)
-    arena.append(0)  # shared-memory ownership map (Sprint 1 unused)
+    arena.append(0)
     arena.append(_HEADER_RESERVED)
 
-    role_id = 0  # Sprint 1: every champion is a clearer
+    role_id = 0
     for altar_index, champion_id in enumerate(picks):
         zone_id = _camp_zone_nearest_spawn(spawn, groups)
         assigned_altar = altar_index if altar_index < altar_count else 0xFF
@@ -109,12 +89,11 @@ def _pack_draft_memory(picks):
             )
         )
         arena.extend(record)
-
     return bytes(arena[:1024])
 
 
 def play():
-    """Run the draft turn: pick, write draft memory. main.py dispatches here when is_draft() is true."""
+    """Run the draft turn: pick, write draft memory."""
     try:
         raw = cambc.draft.current_draft(cambc.Team.ALLY)
         if isinstance(raw, int):
@@ -138,7 +117,11 @@ def play():
             payload = _pack_draft_memory(picks)
             print(f"draft: picks={picks} payload_len={len(payload)}", flush=True)
             cambc.draft_memory.submit(payload)
-            cambc.draft.pick(champion_id)
+            try:
+                cambc.draft.pick(champion_id)
+            except Exception as pick_error:
+                print(f"draft pick error: {pick_error!r}", flush=True)
+                raise
             return
     except Exception as error:
         print(f"draft play error: {error!r}", flush=True)

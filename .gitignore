@@ -4,3 +4,6 @@ matches/
 replays/
 bots/*/build/
 bots/*/target/
+sdk/python/cambc/__pycache__/
+__pycache__/
+*.pyc

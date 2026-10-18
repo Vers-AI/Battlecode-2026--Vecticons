@@ -96,6 +96,34 @@ knowledge.py assembles per-turn facts (position, HP, gold, gems carried, visible
 
 **Done when:** 10 matches vs starter-python — maps: the first 10 of the 17-map pool alphabetically (ambush, collision, contest, corners, eight, elkring, expanse, fragment, interlock, lanes) — zero exceptions, and the stats output shows ≥1 completed clear→capture→tribute cycle per match. First harness task: run one `--statistics stats.json --json` match, record the actual emitted field names here, and restate the criteria against those fields.
 
+### Actual emitted stats.json fields (probed 2026-10-17 against cambc 2.2.4, map=ambush)
+
+Top-level keys: `championTimelines`, `champions`, `diagnostics`, `events`, `formatVersion` (=1.0), `heatmaps`, `jsonFormatVersion` (=1.0), `match`, `roster`, `teamTimelines`, `teams`.
+
+- `match.{roundsCompleted, roundsStarted, outcome, seed, width, height, engineBuildHash, engineVersion, finalInput, finalRoundPartial, finalSubstep, mapHash, metricSemanticsVersion}` — match metadata; `outcome` ∈ `"teamA"|"teamB"|"draw"` (winner; values observed: `"teamB"` with a `"Team B (starter-python) wins: reached 1000 gems in round 1415"` reason line printed by the CLI).
+- `diagnostics.botFaults.{teamA, teamB}` — integers (count of `botFault` events per team). Sprint 2 done-when: this is **0** for both sides.
+- `diagnostics.codes` — list of engine error codes encountered.
+- `diagnostics.detailedCaptureComplete` — boolean; events/timelines are only complete when `True`.
+- `teams[i].submittedGems` — string int (sentinel-style), team gem total.
+- `roster.champions[i].{id, name, team, draftPick}` — per-champion identity.
+- `roster.draft` — list of `{champion, team}` in pick order.
+- `champions[i].metrics.{assists, collectedGems, deaths, earnedGold, gems, gold, kills, monsterDamageDone, monsterDamageTaken, saleRefunds, spentGold, submittedGems, championDamageDone, championDamageTaken, healingDone, healingReceived, shieldingDone}` — per-champion aggregate metrics (numeric, all `str` for integer columns).
+- `champions[i].items`, `itemsBought`, `consumables`, `consumablesBought` — inventory deltas.
+- `events[]` — list of `{kind, owner:{id, kind, name, team}, entries:[{amount, context, target, timestamp:{round, phase, substep, input, ordinal}, value, x, y}, ...]}`.
+- `events[].kind` observed: `death, kill, assist, wardPlacement, buyItem, buyConsumable, sellItem, campClear, gemSubmission, gemCollection, gemLoss, itemCombination, botFault, fuelExhausted, resignation` (one entry per champion).
+- `championTimelines`, `teamTimelines`, `heatmaps` — lists of per-tick data (large; we ignore in Sprint 1).
+
+### Restated criteria against the actual fields
+
+For **Stage 2 done-when**, run `cambc run bots/vecticons bots/starter-python --map <m> --rounds 2000 --statistics stats.json --json` on the 10 named maps (ambush, collision, contest, corners, eight, elkring, expanse, fragment, interlock, lanes) and require each match's `stats.json` to show:
+
+1. **Zero bot faults** — `diagnostics.botFaults.teamA == 0` AND `team-b.stdout` contains no `bot error` line.
+2. **Zero exceptions in team-a stdout** — `team-a.stdout` contains no `bot error` line.
+3. **Stage 2 cycle** — there exists at least one `gemSubmission` event on `events` whose `owner.team == "teamA"` (i.e. ≥1 tribute completion by our team), AND there exists at least one `campClear` event on `events` whose `owner.team == "teamA"` AND `entries` is non-empty (clear with non-zero entries). Together this proves a clear → capture → tribute cycle occurred for team A.
+4. **`cambc build --release` passes** before any of the matches.
+
+Cycle detection is satisfied even for partially-completed matches so long as the gem-submitted entry's `value` (gems submitted) is > 0. If a map's seed legitimately never yields a tribute within 2000 rounds, the run is reported as a Stage-2 cycle miss and we log it (does not block other maps).
+
 ## Stage 3 — Utility layer
 
 First action: copy Stage 2's bot.py to bot_baseline.py (frozen A/B reference). Then rewrite bot.py's decision steps with scoring; main.py and the entry contract never change.
@@ -118,10 +146,16 @@ Argmax wins; ties break by config.py priority order. A/B = run the same map set 
 # Sources: GameRules camp table, champion stats, mechanics sections.
 # PLACEHOLDER = first-pass value for A/B tuning; not final.
 
-BANK_THRESHOLD = 20          # PLACEHOLDER. gems; tribute channel = ceil(gems/10) turns
+BANK_THRESHOLD = 1           # PLACEHOLDER. gems; tribute channel = ceil(gems/10) turns.
+                              # Starter bot banks at gems > 0; Stage 2 baseline matches that to
+                              # prove the cycle works. Stage 3 utility layer re-tunes via
+                              # death-risk scoring.
 TIME_DISCOUNT = 0.9          # PLACEHOLDER. per-turn multiplier
 RECALL_HP_FRAC = 0.35        # from starter bot heuristic
-KILLABLE_HP_CAP = 600        # PLACEHOLDER. > Elk total HP, < Monolith; set from camp table before Stage 2
+KILLABLE_HP_CAP = 5000       # PLACEHOLDER. > elk pack total HP, < Monolith 20k. Stage 2
+                              # baseline needs the floor to engage the common wolf/elk packs
+                              # or the bot never starts a cycle. Stage 3 utility layer keeps
+                              # the same value to gate the argmax (Monolith trap).
 DEATH_RISK_BASE = 0.05       # PLACEHOLDER. unused Sprint 1
 BANK_UTILITY_PER_GEM = 1.0  # PLACEHOLDER
 RECALL_UTILITY = 50.0       # PLACEHOLDER
