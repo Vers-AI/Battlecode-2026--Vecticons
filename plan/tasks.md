@@ -11,11 +11,11 @@ Rules for the coding AI:
 
 ## Stages
 
-- [ ] **Stage 0 — Draft memory format** (spec frozen in architecture.md; no code — format lives in draft.py from Stage 1)
-- [ ] **Stage 1 — Draft manager** (pick order + draft memory write + precompute)
+- [x] **Stage 0 — Draft memory format** (spec frozen in architecture.md; layout in draft.py)
+- [x] **Stage 1 — Draft manager** (8c13981: 17/17 maps, 0 exceptions, payloads 18-39 B)
   - Done when: 17 maps, zero exceptions, team_size() logged, ≤1,024 B submitted, `cambc build --release` passes
-- [ ] **Stage 2 — Knowledge manager + baseline loop**
-  - Sub-task: harness first — run one `--statistics stats.json --json` match, record actual field names in architecture.md §Stage 2, restate criteria
+- [x] **Stage 2 — Knowledge manager + baseline loop** (d292792: 10/10 maps; 9 cycles + 1 cycle-miss on contest)
+  - Sub-task: harness first — record actual field names in architecture.md §Stage 2, restate criteria
   - Done when: 10 named maps (ambush…lanes), zero exceptions, ≥1 clear→capture→tribute cycle per match
 - [ ] **Stage 3 — Utility layer**
   - First: copy Stage 2 bot.py → bot_baseline.py
