@@ -1,4 +1,4 @@
-"""Utility manager (Stage 3).
+"""Utility manager 
 
 Generates candidate actions, scores them, returns the argmax. The killable-camp
 filter (KILLABLE_HP_CAP, Monolith exclusion) is enforced *before* scoring so
