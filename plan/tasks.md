@@ -1,7 +1,7 @@
-# Vecticons Sprint 1 — Task Board
+# Vecticons Task Board
 
 Owner: Drekken. Orchestrator: Praxis. Coder: opencode sessions per stage.
-Deadline: **Sprint 1 locks Sun 18 Oct 23:59 BST** — submission upload is the owner's manual step.
+Sprint 1: **COMPLETE** — locked Sun 18 Oct 23:59 BST (submission upload is the owner's manual step). Sprint 2 deadline: **TBD — owner to set**.
 
 Rules for the coding AI:
 - Read `plan/architecture.md` fully before starting a stage. It is the spec; this file tracks state.
@@ -21,10 +21,22 @@ Rules for the coding AI:
   - First: copy Stage 2 bot.py → bot_baseline.py
   - Done when: 17-map record ≥ baseline record; per-map table in commit message
 
+## Sprint 2 — Enemy intel & shared-memory signaling
+
+Scope frozen (owner, 2026-10-21): architecture.md §Coordination roadmap — write-only signals in owned bits, read-all. Utility upgrades, Telemetry v2 and housekeeping are intentionally **out of scope** (post-sprint backlog). Groundwork already merged: `managers/intelligence.py` @ 6d682a2 — per-champion enemy fog memory (`update_enemy_memory` per play turn, `recent_sightings()` TTL-filtered read path, `ENEMY_TRACK_TTL=60`). Facts only; no consumer wired yet.
+
+- [ ] **S2.1 — Signal protocol on the 8-byte shared channel**
+  Define the byte layout over the ownership bits reserved at draft (Stage 0 header byte 2: bit i = champion i owns shared byte i). Own-bytes carry an enemy-sighting beacon (compact position/kind + freshness) and an altar-contested flag. Must resolve the existing conflict: bot.py's round stamp has every champion writing bytes 0-3, while the ownership map grants byte i to champion i — either move the stamp or scope it to a single owner.
+  - Done when: signals written AND read on all 17 maps; no cross-byte writes (ownership respected); 0 botFaults both sides; `cambc build --release` passes.
+- [ ] **S2.2 — Intel consumers**
+  Broadcast local sightings via the owned bytes; fold ally-broadcast enemy positions into the knowledge snapshot alongside `enemy_memory`; utility consumes them for region risk (gems × P(survive), architecture.md core design) and fight/flee decisions.
+  - Done when: 17-map A/B vs the Sprint 1 utility bot — per-map record AND aggregate submitted gems ≥ current (8W-9L, 12,769 gems); 0 botFaults both sides (the sprint-level done-when from architecture.md).
+
 ## Post-Sprint (not tonight)
 
 - [ ] Telemetry v2 (PIG_Bot viewer extension)
 - [ ] Repo README
+- [ ] Utility upgrades (post-sprint review): real per-camp gem counts in farm scoring, principled banking (carried-gem risk), fight win-probability, recall triple-gate cleanup, nearest reward-available camp
 
 ## Overnight log (append-only; orchestrator and workers write here)
 
