@@ -70,7 +70,10 @@ def _pack_draft_memory(picks):
     arena = bytearray()
     arena.append(_HEADER_VERSION)
     arena.append(len(picks) & 0xFF)
-    arena.append(0)
+    # Byte 2: shared-byte ownership bit map (Stage 0 format): bit i =
+    # champion i owns shared-memory byte i. Written spec-true since S2.1
+    # put the channel to work (Stage 1 shipped 0 — nothing used it).
+    arena.append((1 << len(picks)) - 1 & 0xFF)
     arena.append(_HEADER_RESERVED)
 
     role_id = 0

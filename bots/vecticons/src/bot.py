@@ -24,10 +24,22 @@ What this implementation does:
 
 The Stage 2 reference is frozen at bots/vecticons/src/bot_baseline.py for
 the A/B comparison required by Stage 3 done-when.
+
+Shared-memory channel layout (S2.1; encoded/decoded in
+managers/intelligence.py — all instances agree by shared source):
+
+    byte i (owned by champion i, i = index in the ally draft order)
+      bits 0-3  region id  - 4x4 grid over the map (position quantized)
+      bit  4    altar-contested flag (enemy within contest radius of an
+                 altar)
+      bits 5-7  freshness  - 0 = no fresh sighting (zero byte = nothing);
+                 1-7 = age bucket of ~8 rounds (<= ~55-round horizon)
+
+    Discipline: write ONLY your own byte, every play turn; read all.
+    Champion kind is NOT carried (region quantization); a dead writer's
+    byte freezes until it respawns.
 """
 from __future__ import annotations
-
-import struct
 
 import cambc
 from cambc import game_map
@@ -48,6 +60,10 @@ class Bot:
         # Enemy fog memory (intelligence manager): handle -> last-known
         # record. Plain instance RAM; persists across turns.
         self.enemy_memory = {}
+        # S2.1 signal channel: our owned byte index (ally draft order)
+        # and the last byte value we wrote (change detection for logs).
+        self.channel_index = None
+        self.last_beacon = None
 
     def buy_items(self, champion_short_name: str):
         me = cambc.me()
@@ -76,14 +92,10 @@ class Bot:
                 flush=True,
             )
 
-        # Round stamp (shared-memory layout documented in bot_baseline.py).
-        try:
-            data = bytearray(4)
-            cambc.shared_memory.read(0, data)
-            struct.unpack("<I", data)[0]
-            cambc.shared_memory.write(0, struct.pack("<I", cambc.round_number()))
-        except Exception:
-            pass
+        # Round stamp removed (S2.1): the all-champion bytes 0-3 stamp
+        # violated the byte-ownership map (byte i belongs to champion i)
+        # and had no consumer; the S2.1 beacon supersedes it. The frozen
+        # Stage 2 baseline (bot_baseline.py) keeps its own stamp.
 
         snap = observation.snapshot(self)
         me = snap.me
@@ -105,6 +117,32 @@ class Bot:
                         f"@({r['x']},{r['y']}) r{r['round']}"
                         for r in first_sights
                     ),
+                    flush=True,
+                )
+            )
+
+        # S2.1: write our owned signal byte (write-only discipline) and
+        # read the whole channel (read-all). Runs before the channeling
+        # gate so a tribute-channeling champion still broadcasts — the
+        # altar-contested use case. Beacon changes are logged dev-only.
+        wrote = None
+        try:
+            wrote = intelligence.write_beacon(self, snap)
+        except Exception:
+            wrote = None
+        ally_signals = []
+        try:
+            ally_signals = intelligence.read_signals()
+        except Exception:
+            ally_signals = []
+        if wrote is not None and wrote != self.last_beacon:
+            prev_txt = "init" if self.last_beacon is None else hex(self.last_beacon)
+            self.last_beacon = wrote
+            fresh_allies = sum(1 for s in ally_signals if s["fresh"] > 0)
+            cambc.debug_block(
+                lambda: print(
+                    f"signal: idx={self.channel_index} {prev_txt}->{hex(wrote)} "
+                    f"r={cambc.round_number()} fresh_allies={fresh_allies}",
                     flush=True,
                 )
             )

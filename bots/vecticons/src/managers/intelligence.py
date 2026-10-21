@@ -1,9 +1,10 @@
 """Intelligence manager: persistent per-champion enemy fog memory.
 
 Purpose: track every enemy champion this bot has personally seen and its
-last known location. The dict lives on the Bot instance (plain WASM RAM,
-survives across turns) — it does NOT touch the 1,024-byte draft memory or
-the 8-byte shared memory.
+last known location, and speak the Sprint 2.1 shared-memory signal
+protocol. The dict lives on the Bot instance (plain WASM RAM, survives
+across turns) — it does NOT touch the 1,024-byte draft memory; only the
+beacon write touches the 8-byte shared channel.
 
 Key decisions:
   - Keyed by the engine handle (int(champion)), the only stable identity:
@@ -12,21 +13,25 @@ Key decisions:
   - Records are facts only (round, x, y, champion type). No decisions.
   - Staleness is handled at read time (recent_sightings + ENEMY_TRACK_TTL),
     never by deleting records — old intel can still matter later.
+  - S2.1 beacon: region-quantized (owner's design choice 2026-10-21) —
+    each owned byte carries region + freshness + altar flag; champion
+    kind is dropped by quantization (accepted limitation).
 
-Limitations: per-champion only (vision is not shared; allies never see
-this dict — broadcasting sightings would consume the 8-byte shared
-memory, a Sprint 2 concern). Positions can be arbitrarily stale; callers
-must go through recent_sightings() instead of reading the raw dict.
+Limitations: per-champion only until S2.2 folds broadcasts in; positions
+can be arbitrarily stale (callers go through recent_sightings()); a dead
+writer's shared byte freezes until it respawns (60 rounds, GameRules).
 
 Update frequency: once per play turn from bot.play_turn().
-Read path: snap.enemy_memory (same dict, exposed via the observation
-snapshot) -> recent_sightings(bot) for TTL-filtered last-known locations.
+Read path: snap.enemy_memory -> recent_sightings(bot); shared channel
+via read_signals().
 """
 from __future__ import annotations
 
 import cambc
+from cambc import game_map
 
 import config
+from managers import observation
 
 
 def _handle(champion) -> int:
@@ -90,3 +95,156 @@ def recent_sightings(bot, max_rounds: int | None = None) -> dict:
         for key, record in bot.enemy_memory.items()
         if round_now - record["round"] <= max_rounds
     }
+
+
+# ---------------------------------------------------------------------------
+# S2.1 — Shared-memory signal protocol (8-byte channel).
+#
+# Byte layout (byte i owned by champion i, i = our index in the ally
+# draft order; ownership bitmap = draft memory byte 2, Stage 0 format):
+#   bits 0-3  region id   4x4 grid over the map: rx*4+ry where
+#                        rx = x*4 // width, ry = y*4 // height
+#   bit  4    altar-contested flag: this champion currently sees an enemy
+#                        within SIGNAL_ALTAR_CONTEST_RADIUS of any altar
+#   bits 5-7  freshness  0 = no fresh sighting (zero byte = nothing);
+#                        1-7 = min(6, age_rounds // 8) + 1, i.e. a
+#                        ~55-round horizon aligned with ENEMY_TRACK_TTL=60
+#
+# Written every play turn by the owner only (write-only discipline);
+# readers parse all bytes (read-all). Freshness is a relative age bucket
+# computed at write time, so a byte stays valid while its writer lives.
+# Perf note: the beacon path adds one 1-byte write, one 8-byte read and a
+# bounded <= 5-enemy x altars scan per turn — no map-wide loops.
+#
+# Format constants below are protocol-fixed (writer and reader must
+# agree); they are encoding, not sweep tunables — do not move to config.
+# ---------------------------------------------------------------------------
+
+_REGION_GRID: int = 4          # 4x4 = 16 regions.
+_FRESH_BUCKET_ROUNDS: int = 8  # rounds per freshness bucket.
+_FRESH_NONE: int = 0           # freshness sentinel: no fresh sighting.
+_ALTAR_FLAG_BIT: int = 4       # bit position of the altar-contested flag.
+_FRESH_SHIFT: int = 5          # freshness occupies the high 3 bits.
+
+
+def region_of(x: int, y: int) -> int:
+    """Map position -> 4x4 grid region id (0-15). Protocol-fixed."""
+    width = max(1, int(game_map.width()))
+    height = max(1, int(game_map.height()))
+    rx = min(_REGION_GRID - 1, (int(x) * _REGION_GRID) // width)
+    ry = min(_REGION_GRID - 1, (int(y) * _REGION_GRID) // height)
+    return rx * _REGION_GRID + ry
+
+
+def _channel_index(bot) -> int:
+    """Our owned shared byte: index in the ally draft order (cached).
+
+    Uses observation.draft_id_for: current_draft picks are ChampionDraft
+    values while me.champion_name() is a ChampionType — they diverge from
+    Cassi & Issac onward and cannot be compared directly.
+    """
+    idx = getattr(bot, "channel_index", None)
+    if idx is None:
+        try:
+            picks = [int(p) for p in cambc.draft.current_draft(cambc.Team.ALLY)]
+            me_id = observation.draft_id_for(int(cambc.me().champion_name()))
+            idx = picks.index(me_id)
+        except Exception:
+            idx = -1
+        bot.channel_index = idx
+    return int(idx)
+
+
+def freshest_sighting(bot):
+    """Our most recent in-TTL sighting record, or None."""
+    best = None
+    best_round = -1
+    for record in recent_sightings(bot).values():
+        if record["round"] > best_round:
+            best_round = record["round"]
+            best = record
+    return best
+
+
+def altar_contested(snap) -> bool:
+    """True if a currently visible enemy sits in any altar's contest zone."""
+    radius = int(config.SIGNAL_ALTAR_CONTEST_RADIUS)
+    for enemy in snap.visible_enemies:
+        try:
+            if not enemy.is_visible():
+                continue
+            pos = enemy.position()
+        except Exception:
+            continue
+        for altar in snap.altars:
+            dx = abs(int(pos.x) - int(altar.x))
+            dy = abs(int(pos.y) - int(altar.y))
+            if max(dx, dy) <= radius:
+                return True
+    return False
+
+
+def encode_beacon(record, altar_flag: bool, round_now: int) -> int:
+    """Pack one owned byte: freshest sighting region + altar flag."""
+    value = 0
+    if record is not None:
+        age = max(0, int(round_now) - int(record["round"]))
+        fresh = min(7, _FRESH_NONE + 1 + age // _FRESH_BUCKET_ROUNDS)
+        value |= region_of(record["x"], record["y"]) & 15
+        value |= fresh << _FRESH_SHIFT
+    if altar_flag:
+        value |= 1 << _ALTAR_FLAG_BIT
+    return value
+
+
+def decode_beacon(value: int) -> dict:
+    """Parse one channel byte into facts (region, altar, freshness, age)."""
+    fresh = (value >> _FRESH_SHIFT) & 7
+    return {
+        "region": int(value) & 15,
+        "altar": bool((value >> _ALTAR_FLAG_BIT) & 1),
+        "fresh": fresh,
+        "age_rounds": None if fresh == _FRESH_NONE
+        else (fresh - 1) * _FRESH_BUCKET_ROUNDS,
+    }
+
+
+def write_beacon(bot, snap) -> int | None:
+    """Write our owned byte: freshest personal sighting + altar flag.
+
+    Write-only discipline: byte channel_index is ours alone; no other
+    champion ever writes it. Returns the byte value for diagnostics, or
+    None when dead or without a valid channel index.
+    """
+    if not snap.is_alive:
+        return None
+    idx = _channel_index(bot)
+    if not 0 <= idx <= 7:
+        return None
+    record = freshest_sighting(bot)
+    try:
+        flag = altar_contested(snap)
+    except Exception:
+        flag = False
+    value = encode_beacon(record, flag, cambc.round_number())
+    try:
+        cambc.shared_memory.write(idx, bytes([value]))
+    except Exception:
+        return None
+    return value
+
+
+def read_signals() -> list:
+    """Parse every channel byte (read-all). S2.1's read path; S2.2 folds
+    these into the observation snapshot."""
+    try:
+        raw = bytearray(cambc.shared_memory.size())
+        cambc.shared_memory.read(0, raw)
+    except Exception:
+        return []
+    out = []
+    for idx in range(len(raw)):
+        parsed = decode_beacon(raw[idx])
+        parsed["idx"] = idx
+        out.append(parsed)
+    return out

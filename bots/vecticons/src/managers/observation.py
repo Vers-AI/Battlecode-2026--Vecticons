@@ -113,7 +113,7 @@ def _zone_id_for_me() -> int:
         return 0
     try:
         me = cambc.me()
-        my_id = int(me.champion_name())
+        my_id = draft_id_for(int(me.champion_name()))
     except Exception:
         return 0
     try:
@@ -136,6 +136,23 @@ def champion_short_name(champion_name_int: int) -> str:
     if "." in raw:
         return raw.split(".", 1)[1]
     return raw
+
+
+def draft_id_for(champion_type_int: int) -> int:
+    """ChampionType value -> matching ChampionDraft value.
+
+    The two enums diverge from Cassi & Issac onward: CASSI_AND_ISSAC is
+    one draft pick (3) but two playable types (CASSI=3, ISSAC=4), shifting
+    every later value by one. Comparing a ChampionType against draft picks
+    directly therefore only works for RYTH/VESPER_VALE — the bug that made
+    three of five champions silent on the S2.1 channel (and, latently,
+    misread their draft-memory zone records since Stage 2).
+    """
+    short = champion_short_name(int(champion_type_int))
+    if short == "ISSAC":
+        short = "CASSI_AND_ISSAC"
+    attr = getattr(cambc.ChampionDraft, short, None)
+    return int(attr) if attr is not None else -1
 
 
 def _populate_map_cache(bot, snap) -> None:

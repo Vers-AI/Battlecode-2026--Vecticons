@@ -49,6 +49,12 @@ FARM_ZONE_GEM_ESTIMATE: int = 30      # PLACEHOLDER. Per farm candidate (unseen)
 # "fresh" in recent_sightings(); 60 = one respawn cycle (GameRules death rules).
 ENEMY_TRACK_TTL: int = 60             # PLACEHOLDER. Rounds before a sighting goes stale.
 
+# S2.1 shared-memory signals. An enemy within this Chebyshev radius of any
+# altar sets the altar-contested flag in the owner's byte. Source: GameRules
+# altar locks are placeable within 2 tiles of an altar — that is the contest
+# reach worth signaling.
+SIGNAL_ALTAR_CONTEST_RADIUS: int = 2  # PLACEHOLDER.
+
 MONOLITH_HP: int = 20_000         # GameRules camp table (Monolith total HP).
 
 # Per-champion stat priority used when shopping on spawn tiles.
