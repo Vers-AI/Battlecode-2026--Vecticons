@@ -35,7 +35,7 @@ from cambc import game_map
 import config
 from managers import execution
 from managers import intelligence
-from managers import knowledge
+from managers import observation
 from managers import utility
 
 Team, Item = cambc.Team, cambc.ItemType
@@ -66,7 +66,7 @@ class Bot:
         # First-turn bookkeeping.
         if self.chosen_stat is None:
             try:
-                short = knowledge.champion_short_name(int(cambc.me().champion_name()))
+                short = observation.champion_short_name(int(cambc.me().champion_name()))
             except Exception:
                 short = ""
             stat_priority = config.CHAMPION_STAT_PRIORITY.get(short, "STRENGTH")
@@ -85,7 +85,7 @@ class Bot:
         except Exception:
             pass
 
-        snap = knowledge.snapshot(self)
+        snap = observation.snapshot(self)
         me = snap.me
         position = snap.position
 
@@ -101,7 +101,7 @@ class Bot:
                 lambda: print(
                     "intel: first sight "
                     + ", ".join(
-                        f"{knowledge.champion_short_name(r['kind'])}"
+                        f"{observation.champion_short_name(r['kind'])}"
                         f"@({r['x']},{r['y']}) r{r['round']}"
                         for r in first_sights
                     ),
@@ -123,7 +123,7 @@ class Bot:
         # Gate 2: on spawn -> buy shards.
         if at_spawn:
             try:
-                short = knowledge.champion_short_name(int(me.champion_name()))
+                short = observation.champion_short_name(int(me.champion_name()))
             except Exception:
                 short = ""
             try:
@@ -150,7 +150,7 @@ class Bot:
             if cambc.round_number() <= 20:
                 kinds = [c[0] for c in candidates]
                 me_id = me.champion_name()
-                short = knowledge.champion_short_name(int(me_id)) if me_id is not None else "?"
+                short = observation.champion_short_name(int(me_id)) if me_id is not None else "?"
                 cs = cand[0] if cand else "NONE"
                 print(
                     f"v16: r={cambc.round_number()} {short} kinds={kinds[:8]} best={cs}",

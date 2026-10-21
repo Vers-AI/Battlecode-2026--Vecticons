@@ -1,4 +1,4 @@
-"""Knowledge manager (Stage 2).
+"""Observation manager (Stage 2; renamed from knowledge manager 2026-10-21).
 
 Per-turn assembly of facts the bot needs. Pure read-only; no decisions,
 no SDK writes. Cached map-derived data (camp layout, altar positions,
@@ -10,7 +10,7 @@ Update frequency:
   - Vision-derived facts: every turn (depends on vision()).
   - Map cache (camp groups, altars, spawn): once at first play turn.
 
-Read path: bot.play_turn() calls knowledge.snapshot(self) once per turn,
+Read path: bot.play_turn() calls observation.snapshot(self) once per turn,
 then passes the snapshot through to execution. Knowledge never mutates
 engine state.
 """
@@ -197,7 +197,7 @@ def _build_group_meta(groups) -> dict:
 
 
 def snapshot(bot) -> Snapshot:
-    """Build the per-turn knowledge snapshot; caches map data on bot."""
+    """Build the per-turn observation snapshot; caches map data on bot."""
     me = cambc.me()
     snap = _me_facts(me)
     _populate_map_cache(bot, snap)
@@ -208,7 +208,7 @@ def snapshot(bot) -> Snapshot:
         if not (tiles & visible).is_empty():
             visible_groups.append(group)
     snap.visible_camp_groups = tuple(visible_groups)
-    # Enemy vision facts: knowledge is the single source of what this bot
+    # Enemy vision facts: observation is the single source of what this bot
     # sees (camps AND champions). Perf note: one SDK call + <= 5 enemy
     # views per turn.
     snap.visible_enemies = tuple(cambc.vision.champions(cambc.Team.ENEMY))

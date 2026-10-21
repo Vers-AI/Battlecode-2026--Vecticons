@@ -24,7 +24,7 @@ from cambc import game_map
 
 import config
 from managers import execution
-from managers import knowledge
+from managers import observation
 
 Team, Item = cambc.Team, cambc.ItemType
 
@@ -50,7 +50,7 @@ class Bot:
     def play_turn(self):
         if self.chosen_stat is None:
             try:
-                short = knowledge.champion_short_name(int(cambc.me().champion_name()))
+                short = observation.champion_short_name(int(cambc.me().champion_name()))
             except Exception:
                 short = ""
             stat_priority = config.CHAMPION_STAT_PRIORITY.get(short, "STRENGTH")
@@ -69,7 +69,7 @@ class Bot:
         except Exception:
             pass
 
-        snap = knowledge.snapshot(self)
+        snap = observation.snapshot(self)
         me = snap.me
         position = snap.position
 
@@ -88,7 +88,7 @@ class Bot:
         # Gate 2: on spawn -> buy shards.
         if at_spawn:
             try:
-                short = knowledge.champion_short_name(int(me.champion_name()))
+                short = observation.champion_short_name(int(me.champion_name()))
             except Exception:
                 short = ""
             self.buy_items(short)

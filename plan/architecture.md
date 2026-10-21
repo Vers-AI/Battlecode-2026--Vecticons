@@ -24,7 +24,7 @@ The whole game is denominated in one currency (gems), so the bot's core loop is:
 | Manager | Runs | Job |
 |---|---|---|
 | **Draft** | once, pre-match | Pick champions; write the 1,024-byte plan; precompute map cache (camps, altars, spawns, distances) with full visibility + 10× fuel |
-| **Knowledge/State** | per-turn, cheap | Assemble facts: HP, gold, carried gems, position, vision, draft cache. No decisions. |
+| **Observation/State** | per-turn, cheap | Assemble facts: HP, gold, carried gems, position, vision, draft cache. No decisions. |
 | **Utility/Decision** | per-turn | Generate candidate actions, score each, argmax |
 | **Execution** | per-turn | Chosen action → SDK calls (`reachable_tiles()`, `movement_mask()` — never hand-rolled A*) |
 
@@ -49,7 +49,7 @@ bots/vecticons/
     randomness.py      # seeded PRNG (copy starter's; WASI randomness is zero)
     managers/
       __init__.py
-      knowledge.py     # per-turn state assembly (facts only, no decisions)
+      observation.py    # per-turn state assembly (facts only, no decisions) — renamed from knowledge.py 2026-10-21
       utility.py       # candidate action scoring, argmax
       execution.py     # action -> SDK calls (SDK pathing helpers only)
   pyrightconfig.json   # keep: extraPaths ../../sdk/python
@@ -83,7 +83,7 @@ Pick order: **Ryth → Stellar → Vesper Vale**; if `team_size() == 5`, append 
 
 ## Stage 2 — Knowledge manager + baseline loop (hardcoded)
 
-knowledge.py assembles per-turn facts (position, HP, gold, gems carried, visible camps/enemies/altars, draft plan). bot.py runs the baseline loop:
+observation.py (was knowledge.py, renamed 2026-10-21) assembles per-turn facts (position, HP, gold, gems carried, visible camps/enemies/altars, draft plan). bot.py runs the baseline loop:
 
 1. If channeling (recall/tribute/teleport), dead, or cannot act: return.
 2. If on spawn: buy shards per `CHAMPION_STAT_PRIORITY`.
@@ -185,7 +185,7 @@ cambc build --release                                               # submission
 
 - **Draft memory (1,024 B, pre-match, read-only in match):** Stage 0 format above. Read via `cambc.DraftMemoryBuffer()` per instance.
 - **8-byte shared memory:** the *only* live channel between instances. Byte ownership map written at draft (Stage 0 byte 2) so Sprint 2 signaling needs no format change. **Sprint 1: unused** — the channel stays clear by design; reserve bandwidth.
-- **Per-champion vision (no ally sharing):** every Knowledge-manager fact is local. Movement into unseen occupants returns `False` — retry another step, never raise.
+- **Per-champion vision (no ally sharing):** every Observation-manager fact is local. Movement into unseen occupants returns `False` — retry another step, never raise.
 
 ---
 

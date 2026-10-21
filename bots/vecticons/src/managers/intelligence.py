@@ -19,7 +19,7 @@ memory, a Sprint 2 concern). Positions can be arbitrarily stale; callers
 must go through recent_sightings() instead of reading the raw dict.
 
 Update frequency: once per play turn from bot.play_turn().
-Read path: snap.enemy_memory (same dict, exposed via the knowledge
+Read path: snap.enemy_memory (same dict, exposed via the observation
 snapshot) -> recent_sightings(bot) for TTL-filtered last-known locations.
 """
 from __future__ import annotations
