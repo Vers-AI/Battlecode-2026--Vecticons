@@ -45,6 +45,10 @@ FARM_ZONE_CAP: int = 3             # PLACEHOLDER. Top-N nearest unseen zone camp
 FARM_VISIBLE_GEM_ESTIMATE: int = 60   # PLACEHOLDER. Per farm candidate.
 FARM_ZONE_GEM_ESTIMATE: int = 30      # PLACEHOLDER. Per farm candidate (unseen).
 
+# Enemy fog memory (intelligence manager). Rounds a last-known sighting stays
+# "fresh" in recent_sightings(); 60 = one respawn cycle (GameRules death rules).
+ENEMY_TRACK_TTL: int = 60             # PLACEHOLDER. Rounds before a sighting goes stale.
+
 MONOLITH_HP: int = 20_000         # GameRules camp table (Monolith total HP).
 
 # Per-champion stat priority used when shopping on spawn tiles.

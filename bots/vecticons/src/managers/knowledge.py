@@ -52,9 +52,14 @@ class Snapshot:
 
     # Vision-derived.
     visible_camp_groups: tuple
+    visible_enemies: tuple
 
     # Per-group cached metadata (is_monolith). Filled from the bot's map cache.
     group_meta: dict
+
+    # Enemy fog memory (intelligence manager): engine handle -> last-known
+    # record. Reference to bot.enemy_memory; updated in place each turn.
+    enemy_memory: dict
 
 
 def _me_facts(me) -> Snapshot:
@@ -76,7 +81,9 @@ def _me_facts(me) -> Snapshot:
         camp_groups=(),
         camp_zone_for_champion=0,
         visible_camp_groups=(),
+        visible_enemies=(),
         group_meta={},
+        enemy_memory={},
     )
 
 
@@ -201,4 +208,9 @@ def snapshot(bot) -> Snapshot:
         if not (tiles & visible).is_empty():
             visible_groups.append(group)
     snap.visible_camp_groups = tuple(visible_groups)
+    # Enemy vision facts: knowledge is the single source of what this bot
+    # sees (camps AND champions). Perf note: one SDK call + <= 5 enemy
+    # views per turn.
+    snap.visible_enemies = tuple(cambc.vision.champions(cambc.Team.ENEMY))
+    snap.enemy_memory = getattr(bot, "enemy_memory", None) or {}
     return snap

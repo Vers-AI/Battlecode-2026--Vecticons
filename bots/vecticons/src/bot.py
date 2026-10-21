@@ -34,6 +34,7 @@ from cambc import game_map
 
 import config
 from managers import execution
+from managers import intelligence
 from managers import knowledge
 from managers import utility
 
@@ -44,6 +45,9 @@ class Bot:
     def __init__(self):
         self.chosen_stat = None
         self.map_cache = None
+        # Enemy fog memory (intelligence manager): handle -> last-known
+        # record. Plain instance RAM; persists across turns.
+        self.enemy_memory = {}
 
     def buy_items(self, champion_short_name: str):
         me = cambc.me()
@@ -84,6 +88,26 @@ class Bot:
         snap = knowledge.snapshot(self)
         me = snap.me
         position = snap.position
+
+        # Intel: persist last-known enemy locations (facts only; runs even
+        # while channeling — spotting an enemy mid-tribute is exactly when
+        # we want it). First sights are logged via debug_block (dev only).
+        try:
+            first_sights = intelligence.update_enemy_memory(self, snap)
+        except Exception:
+            first_sights = []
+        if first_sights:
+            cambc.debug_block(
+                lambda: print(
+                    "intel: first sight "
+                    + ", ".join(
+                        f"{knowledge.champion_short_name(r['kind'])}"
+                        f"@({r['x']},{r['y']}) r{r['round']}"
+                        for r in first_sights
+                    ),
+                    flush=True,
+                )
+            )
 
         # Gate 1: channeling / dead.
         if (
