@@ -21,9 +21,11 @@ Rules for the coding AI:
   - First: copy Stage 2 bot.py → bot_baseline.py
   - Done when: 17-map record ≥ baseline record; per-map table in commit message
 
-## Sprint 2 — Enemy intel & shared-memory signaling
+## Sprint 2 — Intel, signaling & utility upgrades
 
-Scope frozen (owner, 2026-10-21): architecture.md §Coordination roadmap — write-only signals in owned bits, read-all. Utility upgrades, Telemetry v2 and housekeeping are intentionally **out of scope** (post-sprint backlog). Groundwork already merged: `managers/intelligence.py` @ 6d682a2 — per-champion enemy fog memory (`update_enemy_memory` per play turn, `recent_sightings()` TTL-filtered read path, `ENEMY_TRACK_TTL=60`). Facts only; no consumer wired yet.
+Scope: intel + signaling (owner, 2026-10-21); amended same day to add utility scoring upgrades (S2.3) and the PLACEHOLDER tuning campaign (S2.4). Out of scope: Telemetry v2, champion-pool expansion, negotiation protocol (Backlog below). Enemy-champion handling is distributed across the sprint: detect/remember (intelligence.py, merged @ 6d682a2), share (S2.1/S2.2), fight/flee + economic avoidance (S2.3). Groundwork: per-champion enemy fog memory (`update_enemy_memory` per play turn, `recent_sightings()` TTL-filtered read path, `ENEMY_TRACK_TTL=60`). Facts only; no consumer wired yet.
+
+Order: S2.1 → S2.2 → S2.3 → S2.4. Tuning always runs last, after the scoring terms it tunes have settled.
 
 - [ ] **S2.1 — Signal protocol on the 8-byte shared channel**
   Define the byte layout over the ownership bits reserved at draft (Stage 0 header byte 2: bit i = champion i owns shared byte i). Own-bytes carry an enemy-sighting beacon (compact position/kind + freshness) and an altar-contested flag. Must resolve the existing conflict: bot.py's round stamp has every champion writing bytes 0-3, while the ownership map grants byte i to champion i — either move the stamp or scope it to a single owner.
@@ -32,11 +34,37 @@ Scope frozen (owner, 2026-10-21): architecture.md §Coordination roadmap — wri
   Broadcast local sightings via the owned bytes; fold ally-broadcast enemy positions into the observation snapshot alongside `enemy_memory`; utility consumes them for region risk (gems × P(survive), architecture.md core design) and fight/flee decisions.
   - Done when: 17-map A/B vs the Sprint 1 utility bot — per-map record AND aggregate submitted gems ≥ current (8W-9L, 12,769 gems); 0 botFaults both sides (the sprint-level done-when from architecture.md).
 
-## Post-Sprint (not tonight)
+- [ ] **S2.3 — Utility scoring upgrades** (post-sprint review 2026-10-21; architecture.md §Core design)
+  - Real per-camp gem counts in farm scoring — CampType→gems table from the GameRules monster table; per-group expected gems precomputed into group_meta (observation manager's first-turn map cache). Restores the spec's `gems(c) × discount^turns`; today every farm candidate uses flat 60/30, so farm picks nearest-first, same as baseline
+  - Principled banking — carried-gem risk term (bank score × P(survive)); activates DEATH_RISK_BASE (unused since Sprint 1); threat inputs start local (visible enemies + own fog memory), enriched by S2.2 broadcasts
+  - Region risk estimation — arch: "crude constant per region for Sprint 1, estimated later"; enemy-sighting data (6d682a2) makes estimation possible
+  - Fight win-probability + flee candidate — replaces "attack anything in range when HP ≥ 35%"
+  - Fight score counts the bag — `(KILL_REWARD_GOLD + enemy.gem_count()) × discount^turns_to_kill`. GameRules: the killer receives ALL carried gems + 50 base gold ("stealing gems from enemies" is a named objective); today utility.py scores every kill at a flat 50. API: gem_count() on champion views (BotAPIPython.md §gem_count), enemy views via vision.champions(ENEMY)
+  - Recall triple-gate cleanup — fold Gate 3 (bot.py) into the argmax with distance-scaled recall utility; completes the exponential discount curve across all candidate types; removes the dead safety_override path
+  - Nearest reward-available camp (currently first-found)
+  - Guardrail: shopping/combat stay rules inside the utility function — no manager promotion during S2.3 (architecture.md §Manager architecture)
+  - Done when: 17-map A/B — per-map record AND aggregate submitted gems ≥ current (8W-9L, 12,769); 0 botFaults both sides; `cambc build --release` passes.
 
-- [ ] Telemetry v2 (PIG_Bot viewer extension)
-- [ ] Repo README
-- [ ] Utility upgrades (post-sprint review): real per-camp gem counts in farm scoring, principled banking (carried-gem risk), fight win-probability, recall triple-gate cleanup, nearest reward-available camp
+- [ ] **S2.4 — PLACEHOLDER tuning campaign** (one item, 12 values; data tunes the data)
+  - Sweep harness — extend the Stage 3 A/B harness to materialize config-variant trees (git-archive per variant, the Stage 3 verification method), run the 17-map pool per variant, parse stats.json, emit per-map + aggregate tables
+  - Method — coordinate descent per cluster: sweep one value at a time holding the rest, emit the response curve (aggregate gems vs value), pick the peak, one iteration per cluster. Bounds the run count (~40-60) vs a naive 12-value grid (1,000+)
+  - Clusters: banking (BANK_THRESHOLD, BANK_UTILITY_PER_GEM, RECALL_UTILITY) · farm (TIME_DISCOUNT, KILLABLE_HP_CAP, FARM_VISIBLE_CAP, FARM_ZONE_CAP, FARM_VISIBLE_GEM_ESTIMATE, FARM_ZONE_GEM_ESTIMATE) · safety (DEATH_RISK_BASE, SAFETY_HP_FRAC) · intel (ENEMY_TRACK_TTL)
+  - Traceability: TIME_DISCOUNT is the base of the exponential discount curve (`TIME_DISCOUNT ** turns` in every score); its sweep tunes curve steepness (0.7 ≈ near-sighted, 0.95 ≈ far-sighted)
+  - Done when: zero PLACEHOLDER tags remain in config.py (each replaced with a tuned-value source citation); 17-map A/B ≥ the S2.3 record; 0 botFaults both sides.
+
+## Backlog (unscheduled — dependency-ordered)
+
+Dependency note: B1 waits on S2 signaling proving measurable value; B2's linked-instance kits want the channel live first; B3 is blocked by the Telemetry v2 schema open question below.
+
+- [ ] **B1. Coordination — Sprint 3+** (architecture.md §Coordination roadmap): negotiation protocol on the shared channel (only if S2 signals show measurable value) · combined-arms focus-fire scoring ("my utility is higher because Ryth is adjacent") · Willow healing/sustain (enters when combined-arms scoring does) · respawn-aware camp schedules
+- [ ] **B2. Champion pool expansion** (architecture.md §Champion strategy notes): Prism (carried-gems personal-utility term) · Cassi & Issac (two linked instances, coordination-shaped; natural after S2 signaling)
+- [ ] **B3. Telemetry & docs**: Telemetry v2 — per-round log → PIG_Bot viewer extension (architecture.md tagged it Sprint 2; owner rescheduled 2026-10-21) · repo README · owner-side: sync the Obsidian vault mirror with architecture.md changes
+
+## Open questions (from architecture.md; status)
+
+- ✓ RESOLVED — exact stats.json field names: probed Stage 2, restated criteria in architecture.md §Stage 2
+- OPEN — Telemetry v2 schema: how the PIG_Bot viewer ingests this game's stats (blocks B3)
+- OPEN — when does the utility layer earn combined-arms scoring (blocks B1)
 
 ## Overnight log (append-only; orchestrator and workers write here)
 
@@ -52,3 +80,4 @@ Scope frozen (owner, 2026-10-21): architecture.md §Coordination roadmap — wri
 - 2026-10-18 02:55 — Orchestrator wake: Stage 3 VERIFIED independently (34 real cambc 2.2.4 runs in isolated git-archive trees; utility runs under --release platform mode). Worker finished its full prompt cleanly at 01:50 (Stage 3 commit d63cbc8, board update 9b6cee7); no respawn needed. Verification: utility HEAD reproduced the worker's claimed numbers exactly on all 17 maps (engine deterministic, fixed per-map seed), 0 botFaults, 0 crashes, no tracebacks, `build --release` OK, bot_baseline.py byte-identical to d292792 bot.py. Caveat found and resolved: the worker's "17/17 utility ≥ baseline" table compared against a mixed baseline (Stage 2 bot.py + mid-tune Stage 3 config.py) that never existed as a commit; against the TRUE Stage 2 tree (full d292792) the honest table is 10 gem wins / 4 ties / 3 small per-map losses (corners -8, lanes -84, rushbait-v2 -8), aggregate 12,769 vs 9,792 submitted gems (+30%), and match record vs starter-python 8W-9L vs baseline 5W-12L → Stage 3 done-when (utility record ≥ baseline record) PASSES. All three stages verified; merging sprint1-overnight into main and pushing. —Praxis
 - 2026-10-21 19:43 — Post-sprint foundation: enemy fog memory (intelligence manager). New `managers/intelligence.py`: per-champion dict on the Bot instance keyed by engine handle → {round, x, y, kind}; updated every play turn (runs while channeling too); read path `recent_sightings()` filters by `ENEMY_TRACK_TTL=60` (PLACEHOLDER, one respawn cycle) added to config.py. Knowledge snapshot extended with `visible_enemies` + `enemy_memory` so knowledge is now the single source of what the bot sees (camps AND champions; enemy facts were previously ad-hoc in utility/execution with zero persistence). Facts only — no consumer wired to the memory yet, so bot behavior is unchanged; verified with real runs: `build --release` OK, ambush 400r + collision 800r vs starter-python, 0 bot errors, 0 fuel exhaustions, intel first-sight debug logs firing (VARG/STELLAR/PRISM sightings r43–r627 on collision). Broadcasting sightings through the 8-byte shared memory remains a Sprint 2 roadmap item. —opencode
 - 2026-10-21 19:58 — Rename: knowledge manager → observation manager. `git mv managers/knowledge.py managers/observation.py` (history preserved); all importers updated (bot.py, bot_baseline.py, intelligence.py docstring). Rationale: with `intelligence` holding accumulated fog memory, the per-turn facts assembler is better named for what it does — observation = what the bot sees this turn, intelligence = what it remembers. Spec updated accordingly (architecture.md manager table "Observation/State", file structure, Stage 2 body, vision-model section; tasks.md S2.2) — historical stage headings and log entries left untouched. Behavior-neutral: verified `build --release` OK + ambush 200r smoke run, 0 bot errors, byte-identical deterministic v16 diagnostics. —opencode
+- 2026-10-21 20:02 — Board consolidation (owner session): every scattered roadmap element from architecture.md (§Coordination roadmap, §Champion strategy notes, §Telemetry plan, §Open questions, §Manager architecture promotion criterion) and the post-sprint review now lives on this board. Sprint 2 scope amended same day per owner: S2.3 utility scoring upgrades added (incl. enemy-carried-gems fight scoring — GameRules "killer receives all carried gems + 50 gold" vs the flat-50 score in utility.py, gap found while consolidating) and S2.4 PLACEHOLDER tuning campaign (sweep harness + per-cluster coordinate descent over the 12 tagged config values; tuning runs last so the exponential-curve base is tuned after its scoring terms settle). Post-Sprint section replaced by dependency-ordered Backlog (B1/B2/B3) + Open questions. No code changes; plan/tasks.md only. —opencode
