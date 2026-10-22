@@ -92,7 +92,7 @@ observation.py (was knowledge.py, renamed 2026-10-21) assembles per-turn facts (
 5. If `gem_count >= BANK_THRESHOLD`: path to nearest unlocked altar (skip `vision.has_altar_lock` altars), submit in range.
 6. Else: farm nearest killable camp.
 
-**Killable camp (v1):** camp group whose monsters' total visible HP ≤ `KILLABLE_HP_CAP`, excluding Monolith (20,000 HP). Unseen camps count as killable if their group is in this champion's draft zone.
+**Killable camp (v1, amended 2026-10-21 — candidate-gate consistency):** camp group whose monsters' total HP ≤ `KILLABLE_HP_CAP`, excluding Monolith (20,000 HP). Visible groups are gated by current HP; **unseen groups are gated by cached static base HP** (draft-precomputed into group_meta, engine-handle keyed) — the gate must not depend on who can see the group. Root cause: a 5,040-HP pack flipped target/not-target across a bush vision boundary on 00ambush, oscillating the argmax at the bush line for 2,000 rounds with zero actions. The original v1 wording's draft-zone qualifier remains unimplemented (no consumer). **The filter binds ALL attack paths**, including the opportunistic in-range attack (lost_world's bait gem clusters woke the 200-strength Monolith through the unfiltered path — every death on both teams, 2,000 rounds, was that Monolith).
 
 **Done when:** 10 matches vs starter-python — maps: the first 10 of the 17-map pool alphabetically (ambush, collision, contest, corners, eight, elkring, expanse, fragment, interlock, lanes) — zero exceptions, and the stats output shows ≥1 completed clear→capture→tribute cycle per match. First harness task: run one `--statistics stats.json --json` match, record the actual emitted field names here, and restate the criteria against those fields.
 
@@ -128,7 +128,7 @@ Cycle detection is satisfied even for partially-completed matches so long as the
 
 First action: copy Stage 2's bot.py to bot_baseline.py (frozen A/B reference). Then rewrite bot.py's decision steps with scoring; main.py and the entry contract never change.
 
-Candidate generation gate: the Stage 2 killable-camp filter (KILLABLE_HP_CAP, Monolith exclusion, config.py) runs BEFORE scoring — camps failing the filter never become candidates. No scoring term can resurrect a filtered camp; without this the argmax feeds the bot to the Monolith (highest gem count, 20,000 HP).
+Candidate generation gate: the Stage 2 killable-camp filter (KILLABLE_HP_CAP, Monolith exclusion, config.py) runs BEFORE scoring — camps failing the filter never become candidates. No scoring term can resurrect a filtered camp; without this the argmax feeds the bot to the Monolith (highest gem count, 20,000 HP). **Reachability gate (added 2026-10-21):** candidates must also be walk-reachable — one shared full-map reachable-tiles computation per turn; scoring distance is Manhattan, but candidacy requires connectivity, else the bot presses a sealed boundary forever (hole-ringed vaults, monolith doors on the patched 40-map pool — no dashes, no TP crystals in the current kit means holes are walls for us).
 
 Scoring, in config.py units:
 - `farm_camp(camp)` = `gems × TIME_DISCOUNT ** turns_to_reach_and_clear`

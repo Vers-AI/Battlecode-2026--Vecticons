@@ -54,8 +54,12 @@ class Snapshot:
     visible_camp_groups: tuple
     visible_enemies: tuple
 
-    # Per-group cached metadata (is_monolith). Filled from the bot's map cache.
+    # Per-group cached metadata (is_monolith, static_hp). Filled from the bot's map cache.
     group_meta: dict
+
+    # Static union of excluded groups' spawn tiles (Monolith / over-cap
+    # static HP): permanent doors for the reachability gate. Cached once.
+    excluded_tiles: Any
 
     # Enemy fog memory (intelligence manager): engine handle -> last-known
     # record. Reference to bot.enemy_memory; updated in place each turn.
@@ -84,6 +88,7 @@ def _me_facts(me) -> Snapshot:
         visible_enemies=(),
         group_meta={},
         enemy_memory={},
+        excluded_tiles=None,
     )
 
 
@@ -164,12 +169,13 @@ def _populate_map_cache(bot, snap) -> None:
     per-turn fuel budget on large maps (group-by-group camp iteration every turn).
     """
     if bot.map_cache is not None:
-        altars, spawn, groups, zone, group_meta = bot.map_cache
+        altars, spawn, groups, zone, group_meta, excluded = bot.map_cache
         snap.altars = altars
         snap.spawn_tile = spawn
         snap.camp_groups = groups
         snap.camp_zone_for_champion = zone
         snap.group_meta = group_meta
+        snap.excluded_tiles = excluded
         return
 
     altars = tuple(game_map.altars().positions())
@@ -182,26 +188,68 @@ def _populate_map_cache(bot, snap) -> None:
     # we never want to repeat on every play turn.
     group_meta = _build_group_meta(groups)
 
-    bot.map_cache = (altars, spawn, groups, zone, group_meta)
+    # Static door overlay for the reachability gate: spawn tiles of every
+    # group failing the killable filter (Monolith or over-cap static HP).
+    # Position-independent by construction - a vision-derived overlay
+    # re-created the target-flip oscillator on 00ambush (reach flickered
+    # with which excluded camps were visible). Staleness limitation: if
+    # the enemy clears an excluded group, its tiles free up but the
+    # overlay stays conservative until respawn (never oscillates, may
+    # over-block a route briefly).
+    excluded = cambc.Bitboard()
+    for group in groups:
+        m = group_meta.get(group_key(group), {})
+        if m.get("is_monolith", False) or int(m.get("static_hp", 0)) > config.KILLABLE_HP_CAP:
+            try:
+                excluded |= group.spawn_tiles()
+            except Exception:
+                pass
+
+    bot.map_cache = (altars, spawn, groups, zone, group_meta, excluded)
     snap.altars = altars
     snap.spawn_tile = spawn
     snap.camp_groups = groups
     snap.camp_zone_for_champion = zone
     snap.group_meta = group_meta
+    snap.excluded_tiles = excluded
+
+
+def group_key(group) -> int:
+    """Stable key for a camp group: the engine handle.
+
+    int(group) is stable across wrapper objects (fresh camp.camp_group()
+    views resolve to the same key); id(group) would only match the
+    cached objects held by the map-cache tuple.
+    """
+    try:
+        return int(group.__index__())
+    except Exception:
+        return id(group)
 
 
 def _build_group_meta(groups) -> dict:
-    """Compute is_monolith / is_respawning for every group, keyed by id(group)."""
+    """Per-group static metadata, keyed by engine handle (group_key).
+
+    is_monolith: any camp of the group is a Monolith. static_hp: sum of
+    the camps' base health (GameRules camp table is static HP; the
+    precompute is probe-verified). Powers the candidate gate's
+    position-independent HP check (architecture.md Stage 2 killable
+    definition, amended 2026-10-21) and the opportunistic-attack filter.
+    """
     from cambc import CampType
     meta: dict = {}
     for group in groups:
         is_monolith = False
+        static_hp = 0
         try:
             for camp in group.camps():
                 try:
                     if int(camp.kind()) == int(CampType.MONOLITH):
                         is_monolith = True
-                        break
+                except Exception:
+                    continue
+                try:
+                    static_hp += float(camp.base_stats().base_health)
                 except Exception:
                     continue
         except Exception:
@@ -209,7 +257,10 @@ def _build_group_meta(groups) -> dict:
         # Skip state() — it can raise if not in vision, and "respawning" is a
         # temporary state that changes every match turn; safer to evaluate it
         # lazily on demand in execution.zone_killable_camps.
-        meta[id(group)] = {"is_monolith": is_monolith}
+        meta[group_key(group)] = {
+            "is_monolith": is_monolith,
+            "static_hp": int(static_hp),
+        }
     return meta
 
 

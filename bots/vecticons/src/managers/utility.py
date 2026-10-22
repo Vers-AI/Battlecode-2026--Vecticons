@@ -150,6 +150,17 @@ def _fight_candidates(snap) -> list:
     return out
 
 
+def _group_reachable(group, reach) -> bool:
+    """True if any of the group's spawn tiles is in the reachable set.
+
+    On failure, permissive (never over-filter on a broken computation).
+    """
+    try:
+        return not (group.spawn_tiles() & reach).is_empty()
+    except Exception:
+        return True
+
+
 def _farm_candidates(snap) -> list:
     """Farm candidates - one per killable camp group (visible + zone), capped.
 
@@ -162,6 +173,11 @@ def _farm_candidates(snap) -> list:
     The killable filter (KILLABLE_HP_CAP + Monolith exclusion) is enforced in
     ``execution.visible_killable_camps`` and ``execution.zone_killable_camps``
     BEFORE scoring - mandatory per architecture.md (the "Monolith trap").
+    Since 2026-10-21 the zone path is gated by cached static base HP against
+    the same cap (position-independent), and every candidate must be
+    walk-reachable (one shared reachable-tiles computation per turn; a
+    hole-ringed vault or a monolith door must never win the argmax - the bot
+    would press against it forever).
 
     Both pools are sorted by distance (closest first) and capped, so the
     argmax always has the top-N closest options to choose between.
@@ -171,6 +187,7 @@ def _farm_candidates(snap) -> list:
     out = []
     pos = snap.position
     discount = float(config.TIME_DISCOUNT)
+    reach = execution.reachable_tiles_from(snap)
 
     # Visible killable groups (already HP-filtered; monsters ≤ KILLABLE_HP_CAP).
     # Sort by distance from current position; take the nearest VISIBLE_CAP.
@@ -180,6 +197,8 @@ def _farm_candidates(snap) -> list:
         visible_all = []
     visible = _sorted_by_distance(visible_all, pos)[:VISIBLE_CAP]
     for group in visible:
+        if reach is not None and not _group_reachable(group, reach):
+            continue
         d = _distance_to_group(group, pos)
         clear_turns = 2
         turns = max(1, d + clear_turns)
@@ -193,6 +212,8 @@ def _farm_candidates(snap) -> list:
     except Exception:
         zone_groups = []
     for group in zone_groups:
+        if reach is not None and not _group_reachable(group, reach):
+            continue
         d = _distance_to_group(group, pos)
         turns = max(1, d + 3)
         score = float(ZONE_GEM_ESTIMATE) * (discount ** max(0, turns))

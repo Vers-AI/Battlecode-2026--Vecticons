@@ -11,6 +11,7 @@ import cambc
 from cambc import game_map
 
 import config
+from managers import observation
 
 
 def _ensure_resolved() -> None:
@@ -27,14 +28,22 @@ def _tiles_around(position, radius) -> Any:
     return tiles
 
 
-def attack_first_in_range(targets) -> bool:
-    """Attack the first visible target inside our attack tiles."""
+def attack_first_in_range(targets, snap=None) -> bool:
+    """Attack the first visible target inside our attack tiles.
+
+    With snap, the killable filter applies (architecture.md Stage 3 gate:
+    a camp whose group fails the filter — Monolith or over-cap static HP
+    — is never attacked; the lost_world bait clusters woke the 200-strength
+    Monolith via this path, 56 deaths). Without snap, legacy behavior is
+    preserved for the frozen Stage 2 baseline.
+    """
     me = cambc.me()
     if not targets:
         return False
     state = me.state()
     if not (state & cambc.ChampionState.CAN_ATTACK):
         return False
+    meta = getattr(snap, "group_meta", None) if snap is not None else None
     attack_tiles = me.attack_tiles()
     for target in targets:
         if target.is_visible():
@@ -44,10 +53,29 @@ def attack_first_in_range(targets) -> bool:
                 continue
             if hp <= 0:
                 continue
-            if attack_tiles.is_set(target.position()):
-                me.attack(target)
-                return True
+            if not attack_tiles.is_set(target.position()):
+                continue
+            if meta is not None and _camp_excluded(target, meta):
+                continue
+            me.attack(target)
+            return True
     return False
+
+
+def _camp_excluded(camp, meta) -> bool:
+    """True if the camp's group fails the killable filter.
+
+    Uses the engine-handle-keyed group_meta so fresh camp.camp_group()
+    wrappers resolve (observation.group_key).
+    """
+    try:
+        group = camp.camp_group()
+    except Exception:
+        return False
+    m = meta.get(observation.group_key(group), {})
+    if m.get("is_monolith", False):
+        return True
+    return int(m.get("static_hp", 0)) > config.KILLABLE_HP_CAP
 
 
 def _blocked_tiles() -> Any:
@@ -58,6 +86,40 @@ def _blocked_tiles() -> Any:
     )
     blocked.set(cambc.me().position(), False)
     return blocked
+
+
+def reachable_tiles_from(snap) -> Any | None:
+    """Bitboard of tiles walkable from our position this turn, or None.
+
+    Terrain-only blockers (walls, holes, altars, enemy spawn) plus the
+    STATIC door overlay of excluded groups' spawn tiles
+    (snap.excluded_tiles, precomputed once — Monolith / over-cap groups
+    are doors we never open). The overlay is deliberately NOT
+    vision-derived: an earlier version overlaid visible excluded camps,
+    which made reach itself flicker with vision and re-created the
+    target-flip oscillator on 00ambush. Killable groups' camps are not
+    blockers — they are the targets, and standing on their spawn tiles
+    is how we farm (blocking on them gutted gem_fields 1005 → 99).
+    Staleness: if the enemy clears an excluded group, the overlay stays
+    conservative until respawn — over-blocking, never oscillating.
+
+    Perf note: one map-sized BFS per farm-candidate turn, the same cost
+    class as the move-toward field; computed once, reused for all
+    candidates.
+    """
+    try:
+        overlay = getattr(snap, "excluded_tiles", None)
+        blocked = (
+            game_map.walls() | game_map.holes() | game_map.altars()
+            | game_map.spawn_region(cambc.Team.ENEMY)
+        )
+        if overlay is not None:
+            blocked = blocked | overlay
+        blocked.set(snap.position, False)
+        radius = int(game_map.width()) + int(game_map.height())
+        return blocked.reachable_tiles(snap.position, radius)
+    except Exception:
+        return None
 
 
 def move_towards_closest(goals) -> bool:
@@ -220,9 +282,9 @@ def visible_killable_camps(snap) -> list:
     result = []
     meta = getattr(snap, "group_meta", {}) or {}
     for group in snap.visible_camp_groups:
-        # Exclude Monolith (cheap cache lookup).
+        # Exclude Monolith (cheap cache lookup, engine-handle keyed).
         try:
-            if meta.get(id(group), {}).get("is_monolith", False):
+            if meta.get(observation.group_key(group), {}).get("is_monolith", False):
                 continue
         except Exception:
             pass
@@ -256,7 +318,7 @@ def reward_available_camp(snap):
     meta = getattr(snap, "group_meta", {}) or {}
     for group in snap.visible_camp_groups:
         try:
-            if meta.get(id(group), {}).get("is_monolith", False):
+            if meta.get(observation.group_key(group), {}).get("is_monolith", False):
                 continue
         except Exception:
             pass
@@ -292,7 +354,16 @@ def zone_killable_camps(snap) -> list:
         if group in snap.visible_camp_groups:
             continue
         try:
-            if meta.get(id(group), {}).get("is_monolith", False):
+            m = meta.get(observation.group_key(group), {})
+            if m.get("is_monolith", False):
+                continue
+            # Position-independent HP gate (architecture.md Stage 2 killable
+            # definition, amended 2026-10-21): unseen groups are gated by
+            # cached static base HP against the same KILLABLE_HP_CAP. The
+            # pre-fix code left unseen groups ungated, so a 5,040-HP pack
+            # flipped target/not-target across vision boundaries (the
+            # 00ambush bush-line oscillator).
+            if int(m.get("static_hp", 0)) > config.KILLABLE_HP_CAP:
                 continue
         except Exception:
             pass

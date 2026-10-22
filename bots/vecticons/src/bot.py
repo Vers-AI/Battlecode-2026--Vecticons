@@ -233,26 +233,27 @@ class Bot:
                     pass
 
             # Farm: walk toward the chosen group's spawn tiles; opportunistically
-            # attack any visible camp in our attack tiles before and after the move.
+            # attack any visible camp in our attack tiles before and after the
+            # move (killable-filtered via snap: never wake a Monolith's group).
             if kind == "farm":
                 try:
-                    if execution.attack_first_in_range(cambc.vision.camps()):
+                    if execution.attack_first_in_range(cambc.vision.camps(), snap):
                         return
                 except Exception:
                     pass
                 goals = target.spawn_tiles()
                 execution.move_towards_closest(goals)
                 try:
-                    execution.attack_first_in_range(cambc.vision.camps())
+                    execution.attack_first_in_range(cambc.vision.camps(), snap)
                 except Exception:
                     pass
                 return
 
         # Baseline-style opportunistic camp attack when we have no utility
         # decision (rare; mainly during fuel-suspended turns). Mirrors gate
-        # 6 of the Stage 2 baseline.
+        # 6 of the Stage 2 baseline, plus the killable filter.
         try:
-            if execution.attack_first_in_range(cambc.vision.camps()):
+            if execution.attack_first_in_range(cambc.vision.camps(), snap):
                 return
         except Exception:
             pass
