@@ -1,7 +1,18 @@
-"""Draft manager (Stage 1).
+"""Draft manager (Stage 1; fuel-wall fix for the patched 40-map pool).
 
 Pick order: Ryth -> Stellar -> Vesper Vale; if team_size() == 5, append Varg, then Willow.
 Writes the Stage 0 draft-memory layout (frozen in plan/architecture.md).
+
+Key decisions: the map layout (altars, camp groups, zone) is computed ONCE
+per process on the first draft turn (10x fuel) and cached at module level —
+the pre-fix code re-derived it per pick, and on the patched pool's bigger
+maps that exhausted the 1x fuel of later draft turns, making the engine
+random-substitute our picks (~15/40 maps).
+
+Limitations: zone ids are still degenerate (all picks share the nearest
+group's zone, unchanged Stage 1 semantics — fixed only if a consumer ever
+reads it); the cache assumes map data is static across the draft, which
+the engine guarantees.
 """
 from __future__ import annotations
 
@@ -22,6 +33,10 @@ _PRIORITY = (
     cambc.ChampionDraft.VARG,
     cambc.ChampionDraft.WILLOW,
 )
+
+# One-time map layout for draft memory packing (fuel-wall fix):
+# (altar count, camp zone id). Computed on the first draft turn.
+_layout_cache = None
 
 
 def _pick_order() -> tuple[int, ...]:
@@ -54,18 +69,38 @@ def _camp_zone_nearest_spawn(spawn, groups) -> int:
     return best_zone
 
 
-def _pack_draft_memory(picks):
-    """Build the Sprint 1 draft-memory payload per Stage 0 layout."""
+def _layout() -> tuple[int, int]:
+    """Altar count and camp zone, computed once (first draft turn, 10x fuel).
+
+    Re-deriving this per pick (and per draft turn) is what exhausted fuel on
+    the patched pool's larger maps — each subsequent draft turn only gets 1x
+    fuel, and the pre-fix code iterated every camp group's spawn tiles per
+    pick record.
+    """
+    global _layout_cache
+    if _layout_cache is not None:
+        return _layout_cache
     try:
-        altars = game_map.altars().positions()
+        altar_count = len(game_map.altars().positions())
     except Exception:
-        altars = []
+        altar_count = 0
     try:
-        groups = game_map.camp_groups()
+        groups = tuple(game_map.camp_groups())
     except Exception:
         groups = ()
     spawn = _nearest_spawn_pos()
-    altar_count = len(altars)
+    zone_id = _camp_zone_nearest_spawn(spawn, groups)
+    _layout_cache = (altar_count, zone_id)
+    return _layout_cache
+
+
+def _pack_draft_memory(picks):
+    """Build the Sprint 1 draft-memory payload per Stage 0 layout (cheap).
+
+    Uses the cached layout; the per-pick cost is appending one 7-byte
+    record.
+    """
+    altar_count, zone_id = _layout()
 
     arena = bytearray()
     arena.append(_HEADER_VERSION)
@@ -78,7 +113,6 @@ def _pack_draft_memory(picks):
 
     role_id = 0
     for altar_index, champion_id in enumerate(picks):
-        zone_id = _camp_zone_nearest_spawn(spawn, groups)
         assigned_altar = altar_index if altar_index < altar_count else 0xFF
         record = bytes(
             (
