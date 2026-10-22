@@ -7,3 +7,7 @@ bots/*/target/
 sdk/python/cambc/__pycache__/
 __pycache__/
 *.pyc
+results-raw/
+records/*
+!records/s20-rebaseline/
+!records/s20-rebaseline/**
