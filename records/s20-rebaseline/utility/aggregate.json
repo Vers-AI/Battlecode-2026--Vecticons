@@ -16,7 +16,8 @@
       "deaths": 0,
       "bot_faults": 0,
       "rounds": 2000,
-      "seconds": 68.9
+      "seconds": 68.9,
+      "fuel_exhausted": 0
     },
     {
       "map": "00collision",
@@ -28,7 +29,8 @@
       "deaths": 41,
       "bot_faults": 0,
       "rounds": 2000,
-      "seconds": 55.2
+      "seconds": 55.2,
+      "fuel_exhausted": 0
     },
     {
       "map": "00contest",
@@ -40,7 +42,8 @@
       "deaths": 52,
       "bot_faults": 0,
       "rounds": 2000,
-      "seconds": 61.9
+      "seconds": 61.9,
+      "fuel_exhausted": 0
     },
     {
       "map": "00corners",
@@ -52,7 +55,8 @@
       "deaths": 63,
       "bot_faults": 0,
       "rounds": 2000,
-      "seconds": 65.5
+      "seconds": 65.5,
+      "fuel_exhausted": 283
     },
     {
       "map": "00eight",
@@ -64,7 +68,8 @@
       "deaths": 66,
       "bot_faults": 0,
       "rounds": 2000,
-      "seconds": 60.8
+      "seconds": 60.8,
+      "fuel_exhausted": 0
     },
     {
       "map": "00elkring",
@@ -76,7 +81,8 @@
       "deaths": 61,
       "bot_faults": 0,
       "rounds": 1576,
-      "seconds": 57.9
+      "seconds": 57.9,
+      "fuel_exhausted": 0
     },
     {
       "map": "00expanse",
@@ -88,7 +94,8 @@
       "deaths": 4,
       "bot_faults": 0,
       "rounds": 2000,
-      "seconds": 70.5
+      "seconds": 70.5,
+      "fuel_exhausted": 1
     },
     {
       "map": "00fragment",
@@ -100,7 +107,8 @@
       "deaths": 33,
       "bot_faults": 0,
       "rounds": 2000,
-      "seconds": 50.7
+      "seconds": 50.7,
+      "fuel_exhausted": 0
     },
     {
       "map": "00gem_fields",
@@ -112,7 +120,8 @@
       "deaths": 12,
       "bot_faults": 0,
       "rounds": 985,
-      "seconds": 59.3
+      "seconds": 59.3,
+      "fuel_exhausted": 0
     },
     {
       "map": "00gemfight",
@@ -124,7 +133,8 @@
       "deaths": 25,
       "bot_faults": 0,
       "rounds": 926,
-      "seconds": 54.1
+      "seconds": 54.1,
+      "fuel_exhausted": 0
     },
     {
       "map": "00great_wall",
@@ -136,7 +146,8 @@
       "deaths": 58,
       "bot_faults": 0,
       "rounds": 2000,
-      "seconds": 62.6
+      "seconds": 62.6,
+      "fuel_exhausted": 1
     },
     {
       "map": "00interlock",
@@ -148,7 +159,8 @@
       "deaths": 13,
       "bot_faults": 0,
       "rounds": 2000,
-      "seconds": 62.5
+      "seconds": 62.5,
+      "fuel_exhausted": 0
     },
     {
       "map": "00lanes",
@@ -160,7 +172,8 @@
       "deaths": 23,
       "bot_faults": 0,
       "rounds": 2000,
-      "seconds": 63.5
+      "seconds": 63.5,
+      "fuel_exhausted": 3202
     },
     {
       "map": "00lost_world",
@@ -172,7 +185,8 @@
       "deaths": 56,
       "bot_faults": 0,
       "rounds": 2000,
-      "seconds": 68.2
+      "seconds": 68.2,
+      "fuel_exhausted": 1
     },
     {
       "map": "00monolith",
@@ -184,7 +198,8 @@
       "deaths": 57,
       "bot_faults": 0,
       "rounds": 2000,
-      "seconds": 60.8
+      "seconds": 60.8,
+      "fuel_exhausted": 1
     },
     {
       "map": "00packs",
@@ -196,7 +211,8 @@
       "deaths": 45,
       "bot_faults": 0,
       "rounds": 2000,
-      "seconds": 53.4
+      "seconds": 53.4,
+      "fuel_exhausted": 0
     },
     {
       "map": "00pilgrimage",
@@ -208,7 +224,8 @@
       "deaths": 0,
       "bot_faults": 0,
       "rounds": 2000,
-      "seconds": 73.6
+      "seconds": 73.6,
+      "fuel_exhausted": 1
     },
     {
       "map": "00quadrants",
@@ -220,7 +237,8 @@
       "deaths": 72,
       "bot_faults": 0,
       "rounds": 1953,
-      "seconds": 65.3
+      "seconds": 65.3,
+      "fuel_exhausted": 17
     },
     {
       "map": "00reverse_spiral",
@@ -232,7 +250,8 @@
       "deaths": 42,
       "bot_faults": 0,
       "rounds": 2000,
-      "seconds": 55.4
+      "seconds": 55.4,
+      "fuel_exhausted": 0
     },
     {
       "map": "00road_of_riches",
@@ -244,7 +263,8 @@
       "deaths": 40,
       "bot_faults": 0,
       "rounds": 2000,
-      "seconds": 60.6
+      "seconds": 60.6,
+      "fuel_exhausted": 1875
     },
     {
       "map": "00rows",
@@ -256,7 +276,8 @@
       "deaths": 11,
       "bot_faults": 0,
       "rounds": 2000,
-      "seconds": 60.4
+      "seconds": 60.4,
+      "fuel_exhausted": 0
     },
     {
       "map": "00rushbait_v2",
@@ -268,7 +289,8 @@
       "deaths": 19,
       "bot_faults": 0,
       "rounds": 2000,
-      "seconds": 62.3
+      "seconds": 62.3,
+      "fuel_exhausted": 0
     },
     {
       "map": "00split",
@@ -280,7 +302,8 @@
       "deaths": 33,
       "bot_faults": 0,
       "rounds": 2000,
-      "seconds": 60.2
+      "seconds": 60.2,
+      "fuel_exhausted": 1194
     },
     {
       "map": "00stampede",
@@ -292,7 +315,8 @@
       "deaths": 0,
       "bot_faults": 0,
       "rounds": 2000,
-      "seconds": 69.7
+      "seconds": 69.7,
+      "fuel_exhausted": 0
     },
     {
       "map": "00swirl",
@@ -304,7 +328,8 @@
       "deaths": 66,
       "bot_faults": 0,
       "rounds": 2000,
-      "seconds": 55.0
+      "seconds": 55.0,
+      "fuel_exhausted": 196
     },
     {
       "map": "01big_world",
@@ -316,7 +341,8 @@
       "deaths": 3,
       "bot_faults": 0,
       "rounds": 2000,
-      "seconds": 71.5
+      "seconds": 71.5,
+      "fuel_exhausted": 4879
     },
     {
       "map": "01boss_battle",
@@ -328,7 +354,8 @@
       "deaths": 23,
       "bot_faults": 0,
       "rounds": 2000,
-      "seconds": 65.6
+      "seconds": 65.6,
+      "fuel_exhausted": 4247
     },
     {
       "map": "01broken_curve",
@@ -340,7 +367,8 @@
       "deaths": 45,
       "bot_faults": 0,
       "rounds": 2000,
-      "seconds": 48.7
+      "seconds": 48.7,
+      "fuel_exhausted": 0
     },
     {
       "map": "01concentrated_wealth",
@@ -352,7 +380,8 @@
       "deaths": 43,
       "bot_faults": 0,
       "rounds": 2000,
-      "seconds": 56.1
+      "seconds": 56.1,
+      "fuel_exhausted": 0
     },
     {
       "map": "01corridors",
@@ -364,7 +393,8 @@
       "deaths": 71,
       "bot_faults": 0,
       "rounds": 2000,
-      "seconds": 60.0
+      "seconds": 60.0,
+      "fuel_exhausted": 1
     },
     {
       "map": "01elk_arena",
@@ -376,7 +406,8 @@
       "deaths": 5,
       "bot_faults": 0,
       "rounds": 2000,
-      "seconds": 68.6
+      "seconds": 68.6,
+      "fuel_exhausted": 20
     },
     {
       "map": "01fracture",
@@ -388,7 +419,8 @@
       "deaths": 33,
       "bot_faults": 0,
       "rounds": 2000,
-      "seconds": 62.5
+      "seconds": 62.5,
+      "fuel_exhausted": 187
     },
     {
       "map": "01gold_rush",
@@ -400,7 +432,8 @@
       "deaths": 33,
       "bot_faults": 0,
       "rounds": 2000,
-      "seconds": 53.3
+      "seconds": 53.3,
+      "fuel_exhausted": 2
     },
     {
       "map": "01hooks",
@@ -412,7 +445,8 @@
       "deaths": 65,
       "bot_faults": 0,
       "rounds": 1784,
-      "seconds": 50.4
+      "seconds": 50.4,
+      "fuel_exhausted": 0
     },
     {
       "map": "01islands",
@@ -424,7 +458,8 @@
       "deaths": 0,
       "bot_faults": 0,
       "rounds": 2000,
-      "seconds": 67.5
+      "seconds": 67.5,
+      "fuel_exhausted": 4991
     },
     {
       "map": "01shortcut",
@@ -436,7 +471,8 @@
       "deaths": 49,
       "bot_faults": 0,
       "rounds": 2000,
-      "seconds": 60.7
+      "seconds": 60.7,
+      "fuel_exhausted": 1
     },
     {
       "map": "01starfish",
@@ -448,7 +484,8 @@
       "deaths": 78,
       "bot_faults": 0,
       "rounds": 2000,
-      "seconds": 48.1
+      "seconds": 48.1,
+      "fuel_exhausted": 0
     },
     {
       "map": "01starvation",
@@ -460,7 +497,8 @@
       "deaths": 50,
       "bot_faults": 0,
       "rounds": 2000,
-      "seconds": 44.0
+      "seconds": 44.0,
+      "fuel_exhausted": 0
     },
     {
       "map": "01the_farm",
@@ -472,7 +510,8 @@
       "deaths": 9,
       "bot_faults": 0,
       "rounds": 2000,
-      "seconds": 27.8
+      "seconds": 27.8,
+      "fuel_exhausted": 42
     },
     {
       "map": "01yellow_brick_road",
@@ -484,8 +523,10 @@
       "deaths": 77,
       "bot_faults": 0,
       "rounds": 2000,
-      "seconds": 24.7
+      "seconds": 24.7,
+      "fuel_exhausted": 3251
     }
   ],
-  "elapsed_minutes": 9.9
+  "elapsed_minutes": 9.9,
+  "total_fuel_exhausted": 24393
 }

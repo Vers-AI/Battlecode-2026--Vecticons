@@ -91,6 +91,9 @@ def extract(stats, side):
     deaths = sum(len(e.get("entries", [])) for e in events
                  if e.get("kind") == "death"
                  and e.get("owner", {}).get("team") == side)
+    fuel = sum(len(e.get("entries", [])) for e in events
+               if e.get("kind") == "fuelExhausted"
+               and e.get("owner", {}).get("team") == side)
     match = stats.get("match", {})
     diag = stats.get("diagnostics", {}).get("botFaults", {})
     return {
@@ -98,6 +101,7 @@ def extract(stats, side):
         "gems": gems,
         "camps_cleared": camps,
         "deaths": deaths,
+        "fuel_exhausted": fuel,
         "bot_faults": int(diag.get(side, 0) or 0),
         "rounds": match.get("roundsCompleted"),
         "engine_version": match.get("engineVersion"),
@@ -119,11 +123,14 @@ def aggregate(results, label, our_side="teamA"):
         rows.append({"map": r["map"], "status": "ok", "win": a["win"],
                      "gems": a["gems"], "opp_gems": b["gems"],
                      "camps": a["camps_cleared"], "deaths": a["deaths"],
+                     "fuel_exhausted": a["fuel_exhausted"],
                      "bot_faults": a["bot_faults"], "rounds": a["rounds"],
                      "seconds": r["seconds"]})
     n_ok = sum(1 for r in rows if r.get("status") == "ok")
     return {"label": label, "matches": len(rows), "wins": wins,
             "losses": n_ok - wins, "total_gems": total_gems,
+            "total_fuel_exhausted": sum(r.get("fuel_exhausted", 0) for r in rows
+                                        if r.get("status") == "ok"),
             "bot_faults": faults, "rows": rows}
 
 
@@ -168,19 +175,19 @@ def main():
              f"**Record: {agg['wins']}-{agg['losses']}** | total gems "
              f"tributed: {agg['total_gems']} | botFaults: {agg['bot_faults']} | "
              f"{agg['elapsed_minutes']} min", "",
-             "| map | W/L | gems | opp | camps | deaths | faults | rounds | sec |",
-             "|---|---|---|---|---|---|---|---|---|"]
+             "| map | W/L | gems | opp | camps | deaths | fuel | faults | rounds | sec |",
+             "|---|---|---|---|---|---|---|---|---|---|"]
     for r in agg["rows"]:
         if r.get("status") != "ok":
-            lines.append(f"| {r['map']} | - | - | - | - | - | - | - | {r['status']} |")
+            lines.append(f"| {r['map']} | - | - | - | - | - | - | - | - | {r['status']} |")
         else:
             lines.append(f"| {r['map']} | {'W' if r['win'] else 'L'} | {r['gems']} | "
-                         f"{r['opp_gems']} | {r['camps']} | {r['deaths']} | "
+                         f"{r['opp_gems']} | {r['camps']} | {r['deaths']} | {r.get('fuel_exhausted', 0)} | "
                          f"{r['bot_faults']} | {r['rounds']} | {r['seconds']} |")
     (out_dir / "table.md").write_text("\n".join(lines) + "\n")
     print(f"[{args.label}] DONE {agg['wins']}-{agg['losses']} | "
-          f"{agg['total_gems']} gems | {agg['bot_faults']} faults | "
-          f"{agg['elapsed_minutes']} min", flush=True)
+          f"{agg['total_gems']} gems | fuel {agg.get('total_fuel_exhausted', 0)} | "
+          f"{agg['bot_faults']} faults | {agg['elapsed_minutes']} min", flush=True)
 
 
 if __name__ == "__main__":

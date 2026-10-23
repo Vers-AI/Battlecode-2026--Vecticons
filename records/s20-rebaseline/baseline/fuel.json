@@ -1,0 +1,167 @@
+{
+  "campaign": "s20-baseline",
+  "total_fuel_exhausted_us": 1011,
+  "total_fuel_exhausted_starter": 5,
+  "per_map": {
+    "00ambush.stats": {
+      "us": 0,
+      "opp": 0
+    },
+    "00collision.stats": {
+      "us": 0,
+      "opp": 0
+    },
+    "00contest.stats": {
+      "us": 0,
+      "opp": 0
+    },
+    "00corners.stats": {
+      "us": 1,
+      "opp": 0
+    },
+    "00eight.stats": {
+      "us": 0,
+      "opp": 0
+    },
+    "00elkring.stats": {
+      "us": 0,
+      "opp": 0
+    },
+    "00expanse.stats": {
+      "us": 1,
+      "opp": 0
+    },
+    "00fragment.stats": {
+      "us": 0,
+      "opp": 0
+    },
+    "00gem_fields.stats": {
+      "us": 0,
+      "opp": 0
+    },
+    "00gemfight.stats": {
+      "us": 0,
+      "opp": 0
+    },
+    "00great_wall.stats": {
+      "us": 1,
+      "opp": 0
+    },
+    "00interlock.stats": {
+      "us": 0,
+      "opp": 0
+    },
+    "00lanes.stats": {
+      "us": 43,
+      "opp": 0
+    },
+    "00lost_world.stats": {
+      "us": 1,
+      "opp": 0
+    },
+    "00monolith.stats": {
+      "us": 1,
+      "opp": 0
+    },
+    "00packs.stats": {
+      "us": 0,
+      "opp": 0
+    },
+    "00pilgrimage.stats": {
+      "us": 1,
+      "opp": 0
+    },
+    "00quadrants.stats": {
+      "us": 1,
+      "opp": 0
+    },
+    "00reverse_spiral.stats": {
+      "us": 0,
+      "opp": 0
+    },
+    "00road_of_riches.stats": {
+      "us": 179,
+      "opp": 0
+    },
+    "00rows.stats": {
+      "us": 0,
+      "opp": 0
+    },
+    "00rushbait_v2.stats": {
+      "us": 0,
+      "opp": 0
+    },
+    "00split.stats": {
+      "us": 1,
+      "opp": 0
+    },
+    "00stampede.stats": {
+      "us": 0,
+      "opp": 0
+    },
+    "00swirl.stats": {
+      "us": 1,
+      "opp": 0
+    },
+    "01big_world.stats": {
+      "us": 1,
+      "opp": 0
+    },
+    "01boss_battle.stats": {
+      "us": 772,
+      "opp": 0
+    },
+    "01broken_curve.stats": {
+      "us": 0,
+      "opp": 0
+    },
+    "01concentrated_wealth.stats": {
+      "us": 0,
+      "opp": 0
+    },
+    "01corridors.stats": {
+      "us": 1,
+      "opp": 0
+    },
+    "01elk_arena.stats": {
+      "us": 1,
+      "opp": 0
+    },
+    "01fracture.stats": {
+      "us": 1,
+      "opp": 0
+    },
+    "01gold_rush.stats": {
+      "us": 0,
+      "opp": 0
+    },
+    "01hooks.stats": {
+      "us": 0,
+      "opp": 0
+    },
+    "01islands.stats": {
+      "us": 1,
+      "opp": 0
+    },
+    "01shortcut.stats": {
+      "us": 1,
+      "opp": 0
+    },
+    "01starfish.stats": {
+      "us": 0,
+      "opp": 0
+    },
+    "01starvation.stats": {
+      "us": 0,
+      "opp": 0
+    },
+    "01the_farm.stats": {
+      "us": 1,
+      "opp": 0
+    },
+    "01yellow_brick_road.stats": {
+      "us": 1,
+      "opp": 5
+    }
+  }
+}
