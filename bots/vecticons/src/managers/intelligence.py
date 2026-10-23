@@ -17,9 +17,11 @@ Key decisions:
     each owned byte carries region + freshness + altar flag; champion
     kind is dropped by quantization (accepted limitation).
 
-Limitations: per-champion only until S2.2 folds broadcasts in; positions
-can be arbitrarily stale (callers go through recent_sightings()); a dead
-writer's shared byte freezes until it respawns (60 rounds, GameRules).
+Limitations: fold_ally_intel folds only what the 8-byte beacon carries
+(region-quantized facts, no positions); a dead writer's shared byte
+freezes until it respawns (60 rounds, GameRules) — frozen flags/density
+over-suppress conservatively; personal sightings can be arbitrarily
+stale (callers go through recent_sightings()).
 
 Update frequency: once per play turn from bot.play_turn().
 Read path: snap.enemy_memory -> recent_sightings(bot); shared channel
@@ -166,22 +168,34 @@ def freshest_sighting(bot):
     return best
 
 
+def local_contested_altars(snap) -> set:
+    """Altar tiles with a visible enemy within the contest radius (exact).
+
+    Own-vision ground truth: the beacon's region quantization can miss an
+    enemy within the radius when the altar sits near a region boundary —
+    this check covers our own sightings precisely. Write side
+    (altar_contested) and the S2.2 fold both build on it.
+    """
+    radius = int(config.SIGNAL_ALTAR_CONTEST_RADIUS)
+    contested: set = set()
+    for altar in snap.altars:
+        ax, ay = int(altar.x), int(altar.y)
+        for enemy in snap.visible_enemies:
+            try:
+                if not enemy.is_visible():
+                    continue
+                pos = enemy.position()
+            except Exception:
+                continue
+            if max(abs(int(pos.x) - ax), abs(int(pos.y) - ay)) <= radius:
+                contested.add((ax, ay))
+                break
+    return contested
+
+
 def altar_contested(snap) -> bool:
     """True if a currently visible enemy sits in any altar's contest zone."""
-    radius = int(config.SIGNAL_ALTAR_CONTEST_RADIUS)
-    for enemy in snap.visible_enemies:
-        try:
-            if not enemy.is_visible():
-                continue
-            pos = enemy.position()
-        except Exception:
-            continue
-        for altar in snap.altars:
-            dx = abs(int(pos.x) - int(altar.x))
-            dy = abs(int(pos.y) - int(altar.y))
-            if max(dx, dy) <= radius:
-                return True
-    return False
+    return bool(local_contested_altars(snap))
 
 
 def encode_beacon(record, altar_flag: bool, round_now: int) -> int:
@@ -248,3 +262,55 @@ def read_signals() -> list:
         parsed["idx"] = idx
         out.append(parsed)
     return out
+
+
+# ---------------------------------------------------------------------------
+# S2.2 — Ally-broadcast fold: beacons -> observation snapshot (facts only).
+# Consumers live in utility (bank/farm scoring); this module only computes
+# facts. bot.py wires fold_ally_intel right after read_signals().
+# ---------------------------------------------------------------------------
+
+
+def fold_ally_intel(snap, ally_signals) -> None:
+    """Fold broadcast beacons into the snapshot (facts; no decisions).
+
+    Sets:
+      snap.ally_signals     every parsed beacon (S2.1 protocol)
+      snap.region_sightings region id -> count of fresh bytes (fresh > 0);
+                            broadcast sighting density per region, all
+                            champions incl. ours (the channel is the source)
+      snap.contested_altars (x, y) altar tiles considered contested:
+                            - exact: a visible enemy within
+                              SIGNAL_ALTAR_CONTEST_RADIUS (own vision)
+                            - broadcast: altars inside the region of an
+                              altar-flagged beacon. Region attribution
+                              requires fresh == 1: an honest flag write
+                              always lands in bucket 1 (the altar-adjacent
+                              enemy IS the writer's freshest sighting, age
+                              0), so higher buckets mean the region bits
+                              point somewhere else — not attributable.
+
+    Known limitation (S2.1, accepted): a dead writer's byte freezes until
+    respawn, so a frozen flag can suppress banking at a since-cleared
+    altar for up to 60 rounds — conservative direction, never oscillating.
+    """
+    snap.ally_signals = tuple(ally_signals)
+    density: dict = {}
+    for sig in ally_signals:
+        if int(sig.get("fresh", 0)) > 0:
+            region = int(sig.get("region", 0)) & 15
+            density[region] = density.get(region, 0) + 1
+    snap.region_sightings = density
+    contested = local_contested_altars(snap)
+    flagged_regions = {
+        int(sig.get("region", 0)) & 15
+        for sig in ally_signals
+        if sig.get("altar") and int(sig.get("fresh", 0)) == 1
+    }
+    for altar in snap.altars:
+        try:
+            if region_of(int(altar.x), int(altar.y)) in flagged_regions:
+                contested.add((int(altar.x), int(altar.y)))
+        except Exception:
+            continue
+    snap.contested_altars = frozenset(contested)

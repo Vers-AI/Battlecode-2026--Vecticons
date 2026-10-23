@@ -16,7 +16,7 @@ engine state.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 import cambc
@@ -64,6 +64,14 @@ class Snapshot:
     # Enemy fog memory (intelligence manager): engine handle -> last-known
     # record. Reference to bot.enemy_memory; updated in place each turn.
     enemy_memory: dict
+
+    # S2.2 folded ally intel (intelligence.fold_ally_intel, wired in bot.py
+    # after read_signals): parsed beacon dicts, per-region fresh-sighting
+    # density (region id -> count), contested altar tiles as (x, y).
+    # Defaults keep scoring S2.0-identical when the fold fails or is skipped.
+    ally_signals: tuple = ()
+    region_sightings: dict = field(default_factory=dict)
+    contested_altars: frozenset = frozenset()
 
 
 def _me_facts(me) -> Snapshot:

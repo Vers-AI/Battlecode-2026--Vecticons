@@ -55,6 +55,20 @@ ENEMY_TRACK_TTL: int = 60             # PLACEHOLDER. Rounds before a sighting go
 # reach worth signaling.
 SIGNAL_ALTAR_CONTEST_RADIUS: int = 2  # PLACEHOLDER.
 
+# S2.2 intel consumers (facts folded by intelligence.fold_ally_intel).
+# Bank-score multiplier for a contested altar (beacon altar flag / own
+# sighting within SIGNAL_ALTAR_CONTEST_RADIUS). Score-down, not skip: when
+# every altar is contested, banking must still happen.
+BANK_CONTEST_PENALTY: float = 0.5   # PLACEHOLDER. ~7 tiles of TIME_DISCOUNT distance.
+# Per-sighting multiplier on bank/farm scores in a region (architecture.md
+# "crude constant per region ... estimated later" — S2.2 is the estimate).
+# Tuning history (S2.2 A/B, stage ratchet vs S2.0's 16-24/13,392):
+#   0.7 -> 14-26/12,977: avoidance too strong — farm redirect steered the
+#   bot off enemy-trafficked GEM economies into safe gold clusters
+#   (01gold_rush: +110 camps, 33 gems, ~11.7k gold held); bank delivery
+#   intact everywhere (no hoard: collected==submitted).
+REGION_RISK_FACTOR: float = 0.85   # PLACEHOLDER. ^count; ~2 discount tiles per sighting.
+
 MONOLITH_HP: int = 20_000         # GameRules camp table (Monolith total HP).
 
 # Per-champion stat priority used when shopping on spawn tiles.

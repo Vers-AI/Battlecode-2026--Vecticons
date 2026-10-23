@@ -386,17 +386,26 @@ def zone_killable_camps(snap) -> list:
     return sorted(result, key=_d)
 
 
-def altar_approach_goals(snap) -> Any:
-    """Bitboard of altar approach tiles, skipping locked altars."""
+def altar_approach_goals(snap, altar=None) -> Any:
+    """Bitboard of altar approach tiles, skipping locked altars.
+
+    With altar: goals around that altar only (S2.2 — the bank argmax may
+    score down a contested near altar and pick a farther safe one; the
+    walk must honor the chosen target, or the bot heads to the nearest
+    altar's ring instead, is never in tribute range of its choice, and
+    stalls carrying gems).
+    Without: legacy behavior — every unlocked altar (frozen baseline path).
+    """
     _ensure_resolved()
     goals = cambc.Bitboard()
-    for altar in snap.altars:
+    altars = (altar,) if altar is not None else snap.altars
+    for a in altars:
         try:
-            if cambc.vision.has_altar_lock(altar):
+            if cambc.vision.has_altar_lock(a):
                 continue
         except Exception:
             pass
-        goals |= _tiles_around(altar, config.TRIBUTE_RANGE)
+        goals |= _tiles_around(a, config.TRIBUTE_RANGE)
     return goals
 
 

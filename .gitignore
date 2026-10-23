@@ -8,6 +8,9 @@ sdk/python/cambc/__pycache__/
 __pycache__/
 *.pyc
 results-raw/
+results/
 records/*
 !records/s20-rebaseline/
 !records/s20-rebaseline/**
+!records/s22-intel/
+!records/s22-intel/**

@@ -38,6 +38,11 @@ managers/intelligence.py — all instances agree by shared source):
     Discipline: write ONLY your own byte, every play turn; read all.
     Champion kind is NOT carried (region quantization); a dead writer's
     byte freezes until it respawns.
+
+    S2.2 consumers (facts folded by managers/intelligence.fold_ally_intel;
+    scoring in managers/utility): the altar-contested flag scores contested
+    bank candidates down (BANK_CONTEST_PENALTY); broadcast sighting density
+    per region multiplies bank/farm scores (REGION_RISK_FACTOR ** count).
 """
 from __future__ import annotations
 
@@ -64,6 +69,9 @@ class Bot:
         # and the last byte value we wrote (change detection for logs).
         self.channel_index = None
         self.last_beacon = None
+        # S2.2 evidence: rate limit for the contest-flag bank prints
+        # (regular stdout so it survives --release; bounded fuel cost).
+        self.contest_logs = 0
 
     def buy_items(self, champion_short_name: str):
         me = cambc.me()
@@ -135,6 +143,14 @@ class Bot:
             ally_signals = intelligence.read_signals()
         except Exception:
             ally_signals = []
+
+        # S2.2: fold ally beacons into the snapshot as facts (consumers in
+        # utility: contested altars / region risk). Failure leaves the
+        # Snapshot defaults -> S2.0-identical scoring.
+        try:
+            intelligence.fold_ally_intel(snap, ally_signals)
+        except Exception:
+            pass
         if wrote is not None and wrote != self.last_beacon:
             prev_txt = "init" if self.last_beacon is None else hex(self.last_beacon)
             self.last_beacon = wrote
@@ -207,11 +223,24 @@ class Bot:
                 return
 
             # Bank: try to submit at this altar; if not in range, walk toward
-            # the altar approach tiles.
+            # this altar's approach tiles (S2.2: the chosen altar, not the
+            # nearest ring — see execution.altar_approach_goals).
             if kind == "bank":
+                # S2.2 evidence (rate-limited, regular print so it survives
+                # --release): the beacon-contested flag shaped this decision.
+                if "contest" in (cand[3] or "") and self.contest_logs < 3:
+                    self.contest_logs += 1
+                    try:
+                        print(
+                            f"s22: bank contest flag: {cand[3]} "
+                            f"altar=({target.x},{target.y})",
+                            flush=True,
+                        )
+                    except Exception:
+                        pass
                 if execution.submit_gems_to_altar(target):
                     return
-                goals = execution.altar_approach_goals(snap)
+                goals = execution.altar_approach_goals(snap, target)
                 if not goals.is_empty() and execution.move_towards_closest(goals):
                     return
                 # Without reachable altar tiles, fall through to farm.

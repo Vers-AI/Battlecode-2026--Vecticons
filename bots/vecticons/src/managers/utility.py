@@ -11,6 +11,13 @@ Scoring (config.py units, see plan/architecture.md §Stage 3):
   fight(e)      = KILL_REWARD_GOLD * TIME_DISCOUNT ** turns_to_kill
   capture(c)    = RECALL_UTILITY + 1000                 when reward-available
 
+S2.2 intel consumers (facts folded by intelligence.fold_ally_intel):
+  bank: contested altars (beacon altar flag / own sighting) score down by
+        BANK_CONTEST_PENALTY — score-down, not skip, so maps where every
+        altar contests still bank; region risk multiplies bank AND farm
+        scores by REGION_RISK_FACTOR ** fresh-sighting count in the target
+        region. P(survive)/fight-flee/carried-gem risk stay S2.3 scope.
+
 Tie-breaking: input order (capture > bank > recall > fight > farm).
 """
 from __future__ import annotations
@@ -20,7 +27,7 @@ from typing import Any
 import cambc
 
 import config
-from managers import execution
+from managers import execution, intelligence
 
 
 # ---------------------------------------------------------------------------
@@ -82,13 +89,24 @@ def _capture_candidates(snap) -> list:
 
 
 def _bank_candidates(snap) -> list:
-    """Bank candidates, one per unlocked altar."""
+    """Bank candidates, one per unlocked altar.
+
+    S2.2: contested altars score down by BANK_CONTEST_PENALTY (score-down,
+    not skip: maps where every altar is contested must still bank); region
+    risk multiplies by REGION_RISK_FACTOR ** fresh-sighting count. The
+    winner's note gains 'flipped' when the contest penalty alone changed
+    which altar wins the argmax (done-when evidence; bot.py prints it
+    rate-limited — a regular print, so it survives --release).
+    """
     _ensure_resolved()
     if snap.gems < config.BANK_THRESHOLD:
         return []
-    out = []
     base = float(snap.gems) * float(config.BANK_UTILITY_PER_GEM)
     discount = float(config.TIME_DISCOUNT)
+    contested = getattr(snap, "contested_altars", frozenset()) or frozenset()
+    density = getattr(snap, "region_sightings", {}) or {}
+    # [kind, altar, score, note, raw score, contest-only score]
+    cands = []
     for altar in snap.altars:
         try:
             if cambc.vision.has_altar_lock(altar):
@@ -96,9 +114,32 @@ def _bank_candidates(snap) -> list:
         except Exception:
             pass
         d = _manhattan(snap.position, altar)
-        score = base * (discount ** max(0, d))
-        out.append(("bank", altar, score, f"d={d}"))
-    return out
+        raw = base * (discount ** max(0, d))
+        score = raw
+        with_contest = raw
+        note = f"d={d}"
+        try:
+            if (int(altar.x), int(altar.y)) in contested:
+                with_contest = raw * float(config.BANK_CONTEST_PENALTY)
+                score = with_contest
+                note += " contest"
+            risk = int(density.get(
+                intelligence.region_of(int(altar.x), int(altar.y)), 0))
+            if risk:
+                score *= float(config.REGION_RISK_FACTOR) ** risk
+                note += f" risk={risk}"
+        except Exception:
+            pass
+        cands.append(["bank", altar, score, note, raw, with_contest])
+    if not cands:
+        return []
+    winner = max(cands, key=lambda c: c[2])
+    if "contest" in winner[3]:
+        raw_pick = max(cands, key=lambda c: c[4])[1]
+        contest_pick = max(cands, key=lambda c: c[5])[1]
+        if raw_pick != contest_pick and winner[1] == contest_pick:
+            winner[3] += " flipped"
+    return [tuple(c[:4]) for c in cands]
 
 
 def _recall_candidates(snap) -> list:
@@ -203,6 +244,7 @@ def _farm_candidates(snap) -> list:
         clear_turns = 2
         turns = max(1, d + clear_turns)
         score = float(VISIBLE_GEM_ESTIMATE) * (discount ** max(0, turns))
+        score *= _region_risk_multiplier(snap, group, pos)
         out.append(("farm", group, score, f"v d={d}"))
 
     # Zone (unseen) groups: zone_killable_camps already sorts by distance.
@@ -217,22 +259,51 @@ def _farm_candidates(snap) -> list:
         d = _distance_to_group(group, pos)
         turns = max(1, d + 3)
         score = float(ZONE_GEM_ESTIMATE) * (discount ** max(0, turns))
+        score *= _region_risk_multiplier(snap, group, pos)
         out.append(("farm", group, score, f"z d={d}"))
     return out
 
 
-def _distance_to_group(group, pos) -> int:
-    """Cheap Manhattan distance from bot to a camp group's spawn tiles."""
+def _nearest_spawn_tile(group, pos):
+    """Group's spawn tile nearest to pos (where a farm walk would head)."""
     try:
         tiles = group.spawn_tiles().positions()
-        if tiles:
-            return min(
-                abs(int(t.x) - int(pos.x)) + abs(int(t.y) - int(pos.y))
-                for t in tiles
-            )
     except Exception:
-        pass
-    return 10**6
+        return None
+    if not tiles:
+        return None
+    return min(
+        tiles,
+        key=lambda t: abs(int(t.x) - int(pos.x)) + abs(int(t.y) - int(pos.y)),
+    )
+
+
+def _distance_to_group(group, pos) -> int:
+    """Cheap Manhattan distance from bot to a camp group's spawn tiles."""
+    tile = _nearest_spawn_tile(group, pos)
+    if tile is None:
+        return 10**6
+    return abs(int(tile.x) - int(pos.x)) + abs(int(tile.y) - int(pos.y))
+
+
+def _region_risk_multiplier(snap, group, pos) -> float:
+    """REGION_RISK_FACTOR ** fresh-sighting count in the group's region.
+
+    S2.2 consumer (b): the region of the nearest spawn tile (where the
+    walk heads) carries the broadcast sighting density. Failure -> 1.0
+    (S2.0-identical scoring).
+    """
+    density = getattr(snap, "region_sightings", None) or {}
+    if not density:
+        return 1.0
+    tile = _nearest_spawn_tile(group, pos)
+    if tile is None:
+        return 1.0
+    try:
+        region = intelligence.region_of(int(tile.x), int(tile.y))
+        return float(config.REGION_RISK_FACTOR) ** int(density.get(region, 0))
+    except Exception:
+        return 1.0
 
 
 def _sorted_by_distance(groups, pos) -> list:
