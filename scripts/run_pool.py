@@ -13,14 +13,18 @@ never touched. Later stages (S2.2+) reuse this harness for their A/B
 done-when gates: point --bot-a at the new bot, compare against the S2.0
 record in plan/tasks.md.
 
-Stats schema: engine metricVersion 1 / engineVersion 0.0.3, pinned by the
-2026-10-22 probe (/tmp/s20-probe.json; see results/s20-probe/ if kept).
-Notable: teams[].submittedGems is a STRING (cast at parse — the classic
-all-zero trap); winner is match.outcome ('teamA'/'teamB'); botFaults live
-under diagnostics.botFaults.<teamA|teamB> (int); camps/deaths counted
-from events[] where each event object has one champion owner and N
-timestamped entries. Update this docstring + extract_team if the engine
-version changes.
+Stats schema: engine metricVersion 1, verified IDENTICAL on engineVersion 0.0.3
+(CLI 2.2.4 probe) and engineVersion 1.0.2 (CLI 3.0.4 probe), both 2026-10-22
+(probes: /tmp/s20-probe.json, /tmp/s20-lostworld.json; campaign raw stats in
+results-raw/). Notable: teams[].submittedGems is a STRING (cast at parse — the
+classic all-zero trap); winner is match.outcome ('teamA'/'teamB'/'draw');
+botFaults live under diagnostics.botFaults.<teamA|teamB> (int); camps/deaths
+counted from events[] where each event object has one champion owner and N
+timestamped entries; fuelExhausted events carry per-team owner + entries (usable
+as a fuel guard — our bot logged 283 exhaustion entries on 00corners alone).
+NOTE: the patched map pool REQUIRES CLI 3.0.4/engine 1.0.2 — CLI 2.2.4/engine
+0.0.3 deterministically fails ~19/40 patched maps (`engine error 7`). Update
+this docstring + extract() if the engine version changes.
 
 Usage:
     .venv/bin/python3 scripts/run_pool.py --project-root /tmp/s20-ref \
