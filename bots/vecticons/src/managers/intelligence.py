@@ -56,22 +56,37 @@ def update_enemy_memory(bot, snap) -> list:
 
     Returns the records of enemies seen for the first time this match
     (diagnostics only; no consumer depends on the return value).
+
+    S2.3 fuel: the enemy's coordinates are read ONCE here and cached on the
+    snapshot as plain ints (`snap.enemy_positions`); the altar-contest test
+    reuses them instead of reading every enemy's position again (~3.7k
+    fuel per coordinate read).
     """
     memory = bot.enemy_memory
     if not snap.is_alive:
         return []
     first_sights: list = []
     round_now = cambc.round_number()
+    positions: list = []
     for enemy in snap.visible_enemies:
         try:
             if not enemy.is_visible():
                 continue
             pos = enemy.position()
+            ex = int(pos.x)
+            ey = int(pos.y)
+            positions.append((enemy, ex, ey))
             record = {
                 "round": int(round_now),
-                "x": int(pos.x),
-                "y": int(pos.y),
+                "x": ex,
+                "y": ey,
                 "kind": int(enemy.champion_name()),
+                # S2.3: the threat model needs the enemy's damage and reach
+                # to price a remembered position as a risk (the fog memory
+                # is the only threat input the bot has outside its own
+                # vision).
+                "strength": float(enemy.strength()),
+                "range": int(enemy.attack_range()),
             }
         except Exception:
             continue
@@ -79,6 +94,10 @@ def update_enemy_memory(bot, snap) -> list:
         if key not in memory:
             first_sights.append(record)
         memory[key] = record
+    try:
+        snap.enemy_positions = tuple(positions)
+    except Exception:
+        pass
     return first_sights
 
 
@@ -130,12 +149,29 @@ _FRESH_SHIFT: int = 5          # freshness occupies the high 3 bits.
 
 
 def region_of(x: int, y: int) -> int:
-    """Map position -> 4x4 grid region id (0-15). Protocol-fixed."""
-    width = max(1, int(game_map.width()))
-    height = max(1, int(game_map.height()))
+    """Map position -> 4x4 grid region id (0-15). Protocol-fixed.
+
+    S2.3 fuel: `game_map.width()` / `height()` are engine calls, so the
+    map size is cached on the first read (it never changes in a match).
+    """
+    width, height = _map_size()
     rx = min(_REGION_GRID - 1, (int(x) * _REGION_GRID) // width)
     ry = min(_REGION_GRID - 1, (int(y) * _REGION_GRID) // height)
     return rx * _REGION_GRID + ry
+
+
+_MAP_SIZE: tuple = (0, 0)
+
+
+def _map_size() -> tuple:
+    """The map size, read from the engine once per process."""
+    global _MAP_SIZE
+    if _MAP_SIZE == (0, 0):
+        try:
+            _MAP_SIZE = (max(1, int(game_map.width())), max(1, int(game_map.height())))
+        except Exception:
+            _MAP_SIZE = (1, 1)
+    return _MAP_SIZE
 
 
 def _channel_index(bot) -> int:
@@ -175,19 +211,35 @@ def local_contested_altars(snap) -> set:
     enemy within the radius when the altar sits near a region boundary —
     this check covers our own sightings precisely. Write side
     (altar_contested) and the S2.2 fold both build on it.
+
+    S2.3 fuel: the enemy coordinates come from `snap.enemy_positions` (the
+    ints the intel update already read), so no Vec2 is read twice.
     """
     radius = int(config.SIGNAL_ALTAR_CONTEST_RADIUS)
     contested: set = set()
-    for altar in snap.altars:
-        ax, ay = int(altar.x), int(altar.y)
+    cached = getattr(snap, "enemy_positions", None)
+    if cached:
+        enemies = [(ex, ey) for _champion, ex, ey in cached]
+    else:
+        enemies = []
         for enemy in snap.visible_enemies:
             try:
                 if not enemy.is_visible():
                     continue
                 pos = enemy.position()
+                enemies.append((int(pos.x), int(pos.y)))
             except Exception:
                 continue
-            if max(abs(int(pos.x) - ax), abs(int(pos.y) - ay)) <= radius:
+    if not enemies:
+        return contested
+    for altar in snap.altars:
+        try:
+            ax = int(altar.x)
+            ay = int(altar.y)
+        except Exception:
+            continue
+        for ex, ey in enemies:
+            if max(abs(ex - ax), abs(ey - ay)) <= radius:
                 contested.add((ax, ay))
                 break
     return contested
@@ -307,10 +359,19 @@ def fold_ally_intel(snap, ally_signals) -> None:
         for sig in ally_signals
         if sig.get("altar") and int(sig.get("fresh", 0)) == 1
     }
-    for altar in snap.altars:
+    # S2.3 fuel: the altar coordinates are cached as plain ints.
+    coords = getattr(snap, "altar_coords", None)
+    if not coords:
+        coords = []
+        for altar in snap.altars:
+            try:
+                coords.append((int(altar.x), int(altar.y)))
+            except Exception:
+                continue
+    for ax, ay in coords:
         try:
-            if region_of(int(altar.x), int(altar.y)) in flagged_regions:
-                contested.add((int(altar.x), int(altar.y)))
+            if region_of(ax, ay) in flagged_regions:
+                contested.add((ax, ay))
         except Exception:
             continue
     snap.contested_altars = frozenset(contested)

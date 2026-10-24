@@ -1,0 +1,167 @@
+{
+  "campaign": "s23-verify",
+  "total_fuel_exhausted_us": 18813,
+  "total_fuel_exhausted_starter": 5,
+  "per_map": {
+    "00ambush.stats.json": {
+      "us": 76,
+      "opp": 0
+    },
+    "00collision.stats.json": {
+      "us": 11,
+      "opp": 0
+    },
+    "00contest.stats.json": {
+      "us": 5,
+      "opp": 0
+    },
+    "00corners.stats.json": {
+      "us": 803,
+      "opp": 0
+    },
+    "00eight.stats.json": {
+      "us": 0,
+      "opp": 0
+    },
+    "00elkring.stats.json": {
+      "us": 0,
+      "opp": 0
+    },
+    "00expanse.stats.json": {
+      "us": 2501,
+      "opp": 0
+    },
+    "00fragment.stats.json": {
+      "us": 0,
+      "opp": 0
+    },
+    "00gem_fields.stats.json": {
+      "us": 10,
+      "opp": 0
+    },
+    "00gemfight.stats.json": {
+      "us": 4,
+      "opp": 0
+    },
+    "00great_wall.stats.json": {
+      "us": 5,
+      "opp": 0
+    },
+    "00interlock.stats.json": {
+      "us": 8,
+      "opp": 0
+    },
+    "00lanes.stats.json": {
+      "us": 3561,
+      "opp": 0
+    },
+    "00lost_world.stats.json": {
+      "us": 148,
+      "opp": 0
+    },
+    "00monolith.stats.json": {
+      "us": 68,
+      "opp": 0
+    },
+    "00packs.stats.json": {
+      "us": 7,
+      "opp": 0
+    },
+    "00pilgrimage.stats.json": {
+      "us": 15,
+      "opp": 0
+    },
+    "00quadrants.stats.json": {
+      "us": 36,
+      "opp": 0
+    },
+    "00reverse_spiral.stats.json": {
+      "us": 4,
+      "opp": 0
+    },
+    "00road_of_riches.stats.json": {
+      "us": 347,
+      "opp": 0
+    },
+    "00rows.stats.json": {
+      "us": 4,
+      "opp": 0
+    },
+    "00rushbait_v2.stats.json": {
+      "us": 7,
+      "opp": 0
+    },
+    "00split.stats.json": {
+      "us": 38,
+      "opp": 0
+    },
+    "00stampede.stats.json": {
+      "us": 12,
+      "opp": 0
+    },
+    "00swirl.stats.json": {
+      "us": 449,
+      "opp": 0
+    },
+    "01big_world.stats.json": {
+      "us": 3609,
+      "opp": 0
+    },
+    "01boss_battle.stats.json": {
+      "us": 1058,
+      "opp": 0
+    },
+    "01broken_curve.stats.json": {
+      "us": 7,
+      "opp": 0
+    },
+    "01concentrated_wealth.stats.json": {
+      "us": 5,
+      "opp": 0
+    },
+    "01corridors.stats.json": {
+      "us": 8,
+      "opp": 0
+    },
+    "01elk_arena.stats.json": {
+      "us": 8,
+      "opp": 0
+    },
+    "01fracture.stats.json": {
+      "us": 292,
+      "opp": 0
+    },
+    "01gold_rush.stats.json": {
+      "us": 10,
+      "opp": 0
+    },
+    "01hooks.stats.json": {
+      "us": 0,
+      "opp": 0
+    },
+    "01islands.stats.json": {
+      "us": 37,
+      "opp": 0
+    },
+    "01shortcut.stats.json": {
+      "us": 13,
+      "opp": 0
+    },
+    "01starfish.stats.json": {
+      "us": 19,
+      "opp": 0
+    },
+    "01starvation.stats.json": {
+      "us": 8,
+      "opp": 0
+    },
+    "01the_farm.stats.json": {
+      "us": 783,
+      "opp": 0
+    },
+    "01yellow_brick_road.stats.json": {
+      "us": 4837,
+      "opp": 5
+    }
+  }
+}

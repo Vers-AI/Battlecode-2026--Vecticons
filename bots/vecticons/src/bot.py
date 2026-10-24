@@ -1,7 +1,7 @@
 """Per-champion decisions. main.py dispatches here after the draft.
 
-Stage 3 utility layer (architecture.md §Stage 3).
-==================================================
+Stage 3 utility layer (architecture.md §Stage 3), upgraded by S2.3.
+==================================================================
 
 Per the spec, the utility layer replaces hardcoded gates with candidate
 generation + argmax scoring. The critical "Monolith trap" constraint
@@ -10,17 +10,24 @@ via the shared execution.filter in utility.generate_candidates.
 
 What this implementation does:
 - Battle plan candidates: capture (stand on a cleared spawn tile),
-  bank (submit gems at the chosen altar), recall (low HP), fight (enemy
-  in attack range), farm (killable camp groups).
+  bank (submit gems at the chosen altar), recall (heal + spend gold),
+  fight (enemy in attack range), flee (weak, enemy in range), boss (the
+  excluded groups, scored as fights), farm (killable camp groups).
 - Scoring per architecture.md:
     farm_camp(c) = gems(c) * TIME_DISCOUNT ** (reach + clear)
     bank(a)      = gem_count * BANK_UTILITY_PER_GEM * TIME_DISCOUNT ** d
-    recall       = RECALL_UTILITY  (only when hp_frac < RECALL_HP_FRAC)
-    fight(e)     = KILL_REWARD_GOLD * TIME_DISCOUNT ** turns_to_kill
-    capture(c)   = RECALL_UTILITY + 1000  (always dominant when available)
+    recall       = (heal_value + gold_value) * TIME_DISCOUNT ** d_spawn
+    fight(e)     = (KILL_REWARD_GOLD + bag) * TIME_DISCOUNT ** turns
+    capture(c)   = CAPTURE_UTILITY  (always dominant when available)
 - Argmax wins. Ties fall back to baseline gate order via the dispatch
-  sequence (capture > bank > recall > fight > farm).
-- A match-time safety override forces recall when HP < SAFETY_HP_FRAC.
+  sequence (capture > bank > recall > fight > flee > boss > farm).
+- S2.3 removed the hardcoded low-HP recall gate (Gate 3) and the
+  safety_override path: recall is a scored candidate now, and a recall
+  channel is never started inside an enemy's attack range (the flee
+  candidate breaks the line of contact first).
+
+The Stage 2 reference is frozen at bots/vecticons/src/bot_baseline.py for
+the A/B comparison required by Stage 3 done-when.
 
 The Stage 2 reference is frozen at bots/vecticons/src/bot_baseline.py for
 the A/B comparison required by Stage 3 done-when.
@@ -58,7 +65,21 @@ from managers import utility
 Team, Item = cambc.Team, cambc.ItemType
 
 
+def _goal_xy(goal) -> str:
+    """The goal tile of a candidate as "x,y" (the goal is a tuple of tiles)."""
+    try:
+        tile = goal[0] if isinstance(goal, (tuple, list)) else goal
+        return "%d,%d" % (int(tile.x), int(tile.y))
+    except Exception:
+        return "?"
+
+
 class Bot:
+    # main.py uses this marker to opt the shared draft manager into the
+    # S2.3 format.  A frozen baseline module has no marker and therefore
+    # keeps the legacy draft payload.
+    S23_ENABLED = True
+
     def __init__(self):
         self.chosen_stat = None
         self.map_cache = None
@@ -72,6 +93,13 @@ class Bot:
         # S2.2 evidence: rate limit for the contest-flag bank prints
         # (regular stdout so it survives --release; bounded fuel cost).
         self.contest_logs = 0
+        # S2.3: the champion's OWN claim memory (group handle -> the round
+        # the group's reward was claimed). A group whose reward was taken
+        # has no live monster until it respawns, so it must not be farmed
+        # again in the meantime. Per champion: each champion runs in its
+        # own process with its own Bot instance, so this is a per-champion
+        # fact, not shared state.
+        self.claimed_groups = {}
 
     def buy_items(self, champion_short_name: str):
         me = cambc.me()
@@ -105,7 +133,10 @@ class Bot:
         # and had no consumer; the S2.1 beacon supersedes it. The frozen
         # Stage 2 baseline (bot_baseline.py) keeps its own stamp.
 
-        snap = observation.snapshot(self)
+        # S2.3 opts into the shared distance-field/cache path.  The default
+        # snapshot() mode remains the frozen Stage 2 behavior for
+        # bot_baseline.py and other legacy callers.
+        snap = observation.snapshot(self, s23_cache=True)
         me = snap.me
         position = snap.position
 
@@ -116,6 +147,12 @@ class Bot:
             first_sights = intelligence.update_enemy_memory(self, snap)
         except Exception:
             first_sights = []
+        # The threat model reads the fog memory, so it is refreshed after
+        # the memory update (otherwise the threat records would lag a turn).
+        try:
+            observation.refresh_threat_memory(self, snap)
+        except Exception:
+            pass
         if first_sights:
             cambc.debug_block(
                 lambda: print(
@@ -185,19 +222,14 @@ class Bot:
             except Exception:
                 pass
 
-        # Gate 3: low HP away from spawn -> recall (baseline rule preserved
-        # outside the utility argmax so an early death is always avoided).
-        if (
-            not at_spawn
-            and snap.max_hp > 0
-            and snap.hp < snap.max_hp * config.RECALL_HP_FRAC
-        ):
-            if execution.recall_to_spawn():
-                return
+        # Gate 3 is GONE (S2.3): the low-HP recall is a scored candidate now
+        # (heal value + gold to spend, discounted by the walk home, scaled
+        # by the channel-interrupt risk), so the hardcoded gate would fight
+        # the argmax instead of feeding it.
 
-        # Build candidate set; pick argmax; safety override may force recall.
+        # Build candidate set; pick argmax.
         candidates = utility.generate_candidates(snap)
-        cand = utility.safety_override(candidates, snap) or utility.best(candidates)
+        cand = utility.best(candidates)
 
         # Diagnostic - log every cand.kind for first few rounds.
         try:
@@ -210,16 +242,42 @@ class Bot:
                     f"v16: r={cambc.round_number()} {short} kinds={kinds[:8]} best={cs}",
                     flush=True,
                 )
+            if config.S23_TRACE and cambc.round_number() <= int(config.S23_TRACE_ROUNDS):
+                short = observation.champion_short_name(int(me.champion_name()))
+                detail = " | ".join(
+                    f"{c[0]}:{c[2]:.1f}:{c[3]}:g=({_goal_xy(c[4])})"
+                    if len(c) > 4 and c[4] is not None
+                    else f"{c[0]}:{c[2]:.1f}:{c[3]}"
+                    for c in candidates
+                )
+                print(
+                    f"trace: r={cambc.round_number()} {short} "
+                    f"pos=({position.x},{position.y}) hp={snap.hp:.0f} "
+                    f"gems={snap.gems} "
+                    f"vis_camps={len(snap.visible_camps)} "
+                    f"vg={len(snap.visible_camp_groups)} "
+                    f"zc={len(snap.camp_groups)} "
+                    f"gp={len(snap.group_positions)} "
+                    f"gpn={sum(1 for v in snap.group_positions.values() if v)} "
+                    f"gi={len(snap.group_index)} "
+                    f"| {detail}",
+                    flush=True,
+                )
         except Exception:
             pass
 
         if cand is not None:
             kind, target = cand[0], cand[1]
+            # The goal tile is the tile the utility layer resolved from the
+            # shared field: the nearest reachable tile of the target (the
+            # camp group's spawn tiles, the altar's approach ring, our own
+            # spawn). It is the tile the cached gradient path ends at.
+            goal = cand[4] if len(cand) > 4 else None
 
             # Capture: stand on the cleared spawn tile for 5 rounds.
             if kind == "capture":
-                goals = target.spawn_tiles()
-                execution.move_towards_closest(goals)
+                if goal is not None:
+                    execution.move_towards_goal(snap, goal, kind="scoring")
                 return
 
             # Bank: try to submit at this altar; if not in range, walk toward
@@ -233,47 +291,98 @@ class Bot:
                     try:
                         print(
                             f"s22: bank contest flag: {cand[3]} "
-                            f"altar=({target.x},{target.y})",
+                            f"altar=({target[0]},{target[1]})",
                             flush=True,
                         )
                     except Exception:
                         pass
-                if execution.submit_gems_to_altar(target):
+                if execution.submit_gems_to_altar(target, snap):
                     return
-                goals = execution.altar_approach_goals(snap, target)
-                if not goals.is_empty() and execution.move_towards_closest(goals):
+                if goal is not None and execution.move_towards_goal(
+                    snap, goal, kind="scoring"
+                ):
                     return
                 # Without reachable altar tiles, fall through to farm.
 
-            # Recall: explicit fallback for the safety override.
+            # Recall: heal + spend gold at spawn. Never start the channel
+            # inside an enemy's attack range (a recall channel is
+            # interrupted by damage) - step away first and recall next turn.
             if kind == "recall":
+                threat = execution.enemy_in_range(snap)
+                if threat is not None:
+                    try:
+                        if execution.move_away_from(threat.position()):
+                            return
+                    except Exception:
+                        pass
+                    # Never begin a damage-interruptible channel while the
+                    # enemy can still hit us. If the step away failed, wait
+                    # for a safer turn instead of falling through to recall.
+                    return
                 if execution.recall_to_spawn():
+                    return
+
+            # Flee (S2.3): weak and an enemy in range -> move away first.
+            if kind == "flee":
+                try:
+                    pos = target.position()
+                except Exception:
+                    pos = None
+                if execution.move_away_from(pos):
                     return
 
             # Fight: enemy in attack range.
             if kind == "fight" and snap.can_attack and target is not None:
                 try:
-                    me_obj = cambc.me()
-                    atk = me_obj.attack_tiles()
-                    if atk.is_set(target.position()):
-                        me_obj.attack(target)
+                    atk = execution.our_attack_tiles(snap)
+                    if atk is not None and atk.is_set(target.position()):
+                        me.attack(target)
                         return
                 except Exception:
                     pass
+
+            # Boss (S2.3 boss graduation): the excluded groups are scored
+            # fight candidates. Walk to the group's tiles and strike its
+            # camps when they come into range (the killable filter is
+            # lifted for THIS group only).
+            if kind == "boss" and target is not None:
+                try:
+                    if execution.attack_first_in_range(
+                        snap.visible_camps, snap, allow_excluded=True, group=target
+                    ):
+                        return
+                except Exception:
+                    pass
+                # The boss's own tiles are WALLS in the scoring field (the
+                # boss is a door), so the engagement path comes from the
+                # terrain-only boss field.
+                if goal is not None and execution.move_towards_goal(
+                    snap, goal, kind="boss"
+                ):
+                    return
+                try:
+                    execution.attack_first_in_range(
+                        snap.visible_camps, snap, allow_excluded=True, group=target
+                    )
+                except Exception:
+                    pass
+                return
 
             # Farm: walk toward the chosen group's spawn tiles; opportunistically
             # attack any visible camp in our attack tiles before and after the
             # move (killable-filtered via snap: never wake a Monolith's group).
             if kind == "farm":
                 try:
-                    if execution.attack_first_in_range(cambc.vision.camps(), snap):
+                    if execution.attack_first_in_range(snap.visible_camps, snap):
                         return
                 except Exception:
                     pass
-                goals = target.spawn_tiles()
-                execution.move_towards_closest(goals)
+                if goal is not None and execution.move_towards_goal(
+                    snap, goal, kind="scoring"
+                ):
+                    return
                 try:
-                    execution.attack_first_in_range(cambc.vision.camps(), snap)
+                    execution.attack_first_in_range(snap.visible_camps, snap)
                 except Exception:
                     pass
                 return
@@ -282,7 +391,7 @@ class Bot:
         # decision (rare; mainly during fuel-suspended turns). Mirrors gate
         # 6 of the Stage 2 baseline, plus the killable filter.
         try:
-            if execution.attack_first_in_range(cambc.vision.camps(), snap):
+            if execution.attack_first_in_range(snap.visible_camps, snap):
                 return
         except Exception:
             pass

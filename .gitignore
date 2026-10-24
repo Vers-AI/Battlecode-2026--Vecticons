@@ -14,3 +14,5 @@ records/*
 !records/s20-rebaseline/**
 !records/s22-intel/
 !records/s22-intel/**
+!records/s23-verify/
+!records/s23-verify/**
