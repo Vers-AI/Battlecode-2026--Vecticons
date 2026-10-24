@@ -1,13 +1,20 @@
 """Draft manager (Stage 1; fuel-wall fix for the patched 40-map pool).
 
 Pick order: Ryth -> Stellar -> Vesper Vale; if team_size() == 5, append Varg, then Willow.
-Writes the Stage 0 draft-memory layout (frozen in plan/architecture.md).
+Writes the draft-memory layout (frozen in plan/architecture.md; S2.3 extends
+it to format version 2 with the boss unlock section).
 
 Key decisions: the map layout (altars, camp groups, zone) is computed ONCE
 per process on the first draft turn (10x fuel) and cached at module level —
 the pre-fix code re-derived it per pick, and on the patched pool's bigger
 maps that exhausted the 1x fuel of later draft turns, making the engine
 random-substitute our picks (~15/40 maps).
+
+S2.3: the boss "unlock value" (the reachability delta of an excluded group —
+what opens if its tiles open) is static map topology, so it is computed in
+the draft's 10x-fuel window and shipped to the play phase through the
+extended (v2) team draft memory. The play phase falls back to computing it
+on its first (2x-fuel) turn when the draft memory carries none.
 
 Limitations: zone ids are still degenerate (all picks share the nearest
 group's zone, unchanged Stage 1 semantics — fixed only if a consumer ever
@@ -19,10 +26,27 @@ from __future__ import annotations
 import cambc
 from cambc import game_map
 
+from managers import observation, topology
 
-# Stage 0 frozen header.
+
+# Draft-memory header.  The S2.3 format (version 2 plus the unlock
+# section) is enabled by main.py only for the new utility bot.  Keeping
+# the legacy default preserves the frozen baseline's draft payload and
+# engine-call profile.
 _HEADER_VERSION = 1
 _HEADER_RESERVED = 0
+_S23_ENABLED = False
+
+
+def enable_s23() -> None:
+    """Enable the S2.3 draft-memory extension for this process."""
+    global _S23_ENABLED
+    _S23_ENABLED = True
+
+# S2.3: the unlock precompute is skipped when the draft turn is out of
+# fuel (the engine then random-substitutes our pick). The play phase
+# recomputes the values on its first turn, so skipping is safe.
+_UNLOCK_MIN_FUEL = 1_000_000
 
 
 # Sprint 1 pick priority.
@@ -37,6 +61,9 @@ _PRIORITY = (
 # One-time map layout for draft memory packing (fuel-wall fix):
 # (altar count, camp zone id). Computed on the first draft turn.
 _layout_cache = None
+
+# One-time boss unlock section (S2.3). Computed on the first draft turn.
+_unlock_cache = None
 
 
 def _pick_order() -> tuple[int, ...]:
@@ -94,16 +121,55 @@ def _layout() -> tuple[int, int]:
     return _layout_cache
 
 
+def _unlock_section() -> bytes:
+    """The boss unlock section (S2.3), computed once per draft process.
+
+    The unlock value of an excluded group is the reachability delta of the
+    map: what opens up if that group's tiles open. It is static topology, so
+    it is computed in the draft's 10x-fuel window and shipped to the play
+    phase through the v2 draft memory (the play phase falls back to its own
+    first-turn precompute when this section is empty).
+    """
+    global _unlock_cache
+    if _unlock_cache is not None:
+        return _unlock_cache
+    _unlock_cache = b"\x00"  # empty section (count = 0)
+    try:
+        fuel = int(cambc.fuel_remaining())
+    except Exception:
+        fuel = 0
+    if fuel < _UNLOCK_MIN_FUEL:
+        print(
+            f"draft: unlock precompute skipped (fuel={fuel})",
+            flush=True,
+        )
+        return _unlock_cache
+    values: dict = {}
+    try:
+        groups = tuple(game_map.camp_groups())
+        meta = observation.build_group_meta(groups)
+        values = topology.compute_unlock_values(groups, meta)
+    except Exception as error:
+        print(f"draft: unlock precompute failed: {error!r}", flush=True)
+        values = {}
+    _unlock_cache = topology.pack_unlock_section(values)
+    print(
+        f"draft: unlock entries={len(values)} section_bytes={len(_unlock_cache)}",
+        flush=True,
+    )
+    return _unlock_cache
+
+
 def _pack_draft_memory(picks):
-    """Build the Sprint 1 draft-memory payload per Stage 0 layout (cheap).
+    """Build the draft-memory payload per the v2 layout (cheap).
 
     Uses the cached layout; the per-pick cost is appending one 7-byte
-    record.
+    record. The S2.3 unlock section is appended once (cached).
     """
     altar_count, zone_id = _layout()
 
     arena = bytearray()
-    arena.append(_HEADER_VERSION)
+    arena.append(topology.DRAFT_MEMORY_VERSION if _S23_ENABLED else _HEADER_VERSION)
     arena.append(len(picks) & 0xFF)
     # Byte 2: shared-byte ownership bit map (Stage 0 format): bit i =
     # champion i owns shared-memory byte i. Written spec-true since S2.1
@@ -126,6 +192,10 @@ def _pack_draft_memory(picks):
             )
         )
         arena.extend(record)
+    # S2.3: the boss unlock section rides behind the pick records.  Keep
+    # the legacy payload byte-for-byte compatible when S2.3 is disabled.
+    if _S23_ENABLED:
+        arena.extend(_unlock_section())
     return bytes(arena[:1024])
 
 
