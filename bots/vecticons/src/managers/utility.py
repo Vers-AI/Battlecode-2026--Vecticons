@@ -1066,6 +1066,13 @@ def _farm_candidates(snap, field, clear_map=None) -> list:
     zone_pool = int(getattr(config, "FARM_ZONE_POOL", 6))
     zone_extra = int(config.FARM_ZONE_UNCERTAINTY_TURNS)
     unreachable = fielding.UNREACHABLE
+    # S2.3.2: the LIVE camps of every visible group (observation fills the
+    # map every turn: a dead camp is never reported by vision.camps(), so
+    # the visible camps ARE the live ones).
+    live_map = getattr(snap, "group_live_tiles", None) or {}
+    goal_reads = int(config.FARM_TILE_READS)
+    if goal_reads < 1:
+        goal_reads = 1
 
     for pool, limit, extra, cap in (
         (visible, visible_pool, 0, VISIBLE_CAP),
@@ -1080,6 +1087,39 @@ def _farm_candidates(snap, field, clear_map=None) -> list:
             if key in cleared_keys:
                 continue  # the reward is waiting or already claimed
             tile = row[2]
+            goal = None
+            alts = row[10]
+            live = live_map.get(key)
+            if live:
+                # S2.3.2: the goal is a LIVE camp of the group. The static
+                # anchor (row[2]) is the spawn tile of the group's FIRST
+                # camp: when that camp is killed the anchor is a DEAD tile,
+                # the distance to it stays 0, the score stays maximal and
+                # the walk refuses to move (we already stand on the goal
+                # tile) - the champion was PINNED on the dead camp for the
+                # whole match (01yellow_brick_road: (5,17) from round 19 to
+                # round 2000, one camp cleared in 2,000 rounds).
+                #
+                # The live camps are ranked by the straight-line distance
+                # (plain ints, no engine call) and the nearest few become
+                # the goal list, so a champion that cannot take the first
+                # tile (it is taken) falls back to the next one.
+                ranked = []
+                for _spawn, _sx, _sy in live:
+                    dx = _sx - px
+                    if dx < 0:
+                        dx = -dx
+                    dy = _sy - py
+                    if dy < 0:
+                        dy = -dy
+                    ranked.append((dx if dx > dy else dy, _spawn))
+                ranked.sort(key=lambda item: item[0])
+                goal = tuple(t for _c, t in ranked[:goal_reads])
+                if not goal:
+                    goal = None
+                else:
+                    tile = goal[0]
+                    alts = goal[1:]
             try:
                 d = field.get(tile)
             except Exception:
@@ -1089,7 +1129,7 @@ def _farm_candidates(snap, field, clear_map=None) -> list:
                 # are tried (a group is a cardinally connected cluster, so
                 # this only happens when the door cuts the cluster).
                 d = unreachable
-                for alt in row[10]:
+                for alt in alts:
                     try:
                         td = field.get(alt)
                     except Exception:
@@ -1102,18 +1142,25 @@ def _farm_candidates(snap, field, clear_map=None) -> list:
             ci = clear_map.get(row[8])
             if ci is None:
                 continue
-            turns = d + ci[0] + extra + _T_CAPTURE_TURNS
+            # S2.3.2: the clear time pays for the WALK ACROSS the group
+            # (the group's span). The HP term alone priced a 30-camp row
+            # spread over 30 tiles like a 4-camp cluster, and the gold rows
+            # of 01yellow_brick_road then outranked every real gem group.
+            span = row[11]
+            turns = d + ci[0] + span + extra + _T_CAPTURE_TURNS
             if turns < 1:
                 turns = 1
             score = row[5] * (discount ** turns) * ci[1] * risk.get(row[9], 1.0)
             if score <= 0.0:
                 continue
-            scored.append((-score, index, row, d, turns))
+            scored.append((-score, index, row, d, turns, goal))
             index += 1
         scored.sort()
-        for _ns, _i, row, d, turns in scored[:cap]:
+        for _ns, _i, row, d, turns, goal in scored[:cap]:
+            if goal is None:
+                goal = (row[2],)
             out.append(
-                ["farm", row[1], -_ns, _farm_note(d, row[5], turns), (row[2],)]
+                ["farm", row[1], -_ns, _farm_note(d, row[5], turns), goal]
             )
     return out
 
@@ -1148,16 +1195,14 @@ def _apply_path_exposure(cands, snap, field) -> None:
     bot = getattr(snap, "bot", None)
     if bot is None:
         return
-    # S2.3 FUEL: the exposure probe is an OPTIONAL read (a risk multiplier,
-    # not a candidate source). When the turn is nearly spent it is skipped:
-    # a fresh gradient walk costs ~3.6k fuel per step, so one long walk can
-    # eat a third of the remaining turn budget. The read is one engine call
-    # (~13k fuel) and it buys a bounded number of walks.
-    try:
-        if int(cambc.fuel_remaining()) < int(config.PATH_EXPOSURE_MIN_FUEL):
-            return
-    except Exception:
-        pass
+    # S2.3 FUEL: the exposure probe costs a gradient walk per probed goal,
+    # and the walk is CACHED on the bot (managers.fielding), so a repeated
+    # goal is nearly free. A fuel guard here was measured and REJECTED:
+    # skipping the probe when the turn is nearly spent changed the
+    # argmax on 01boss_battle (48 camps cleared at HEAD -> 34 with the
+    # guard, 45 without it) and did not even save fuel (1,054 exhaustion
+    # events at HEAD -> 190 with the guard, 143 without it) - the other
+    # fuel fixes in this stage removed the exhaustion by themselves.
     budget = int(config.PATH_EXPOSURE_CANDIDATES)
     order = sorted(range(len(cands)), key=lambda i: -float(cands[i][2]))
     selected = []

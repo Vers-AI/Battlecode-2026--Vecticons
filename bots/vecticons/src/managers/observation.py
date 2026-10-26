@@ -129,7 +129,24 @@ class Snapshot:
     s23_cache: bool = False
     # Camp handle -> (group handle, camp kind, base HP). First-turn cache:
     # the visible camps are resolved without any per-turn SDK lookup.
+    #
+    # S2.3.2: the entry also carries the camp's SPAWN TILE
+    # (Vec2, x, y) - the farm candidate's goal must be a LIVE camp of the
+    # group (a dead camp is not reported by ``vision.camps()``, so the
+    # visible camps ARE the live ones). ``camp.spawn_position()`` is a free
+    # attribute (no SDK call), so the per-turn goal costs no engine read.
     camp_info: dict = field(default_factory=dict)
+    # Group handle -> the LIVE visible camps of that group, as
+    # (Vec2, x, y) tuples. Filled every turn by _read_visible_camps: a dead
+    # camp is never reported by ``vision.camps()``, so every visible camp is
+    # alive. The farm candidate walks to the nearest live camp instead of
+    # the group's static representative tile - the static anchor is the
+    # spawn tile of the group's FIRST camp, and when that camp is killed
+    # the anchor is a dead tile: the distance stays 0, the score stays
+    # maximal and the walk refuses to move (we already stand on the goal
+    # tile), which pinned the champion on the dead camp for the whole match
+    # (measured on 01yellow_brick_road: (5,17) from round 19 to 2000).
+    group_live_tiles: dict = field(default_factory=dict)
     # Group handle -> number of camps in the group (first-turn cache).
     group_camp_count: dict = field(default_factory=dict)
     # Group handle -> live visible HP (S2.3 path only).
@@ -240,6 +257,8 @@ class Snapshot:
     #   9 region       - the 4x4 region id of the anchor (static)
     #   10 tiles       - the group's other spawn tiles (Vec2), for the
     #                    sealed-anchor fallback read
+    #   11 span       - the group's Chebyshev diameter (the walk across
+    #                    the group), charged to the clear time
     farm_rows: tuple = ()
     # The groups that fail the killable filter (Monolith / over-cap static
     # HP) as (key, group) pairs, with their STATIC boss value.
@@ -648,7 +667,11 @@ def _populate_map_cache(bot, snap, s23_cache: bool = False) -> None:
             # call). `group.spawn_tiles().positions()` was 46 SDK calls
             # (460k fuel) on a 46-group map, for the same list.
             try:
-                positions = tuple(camp.spawn_position() for camp in group.camps())
+                camps = list(group.camps())
+            except Exception:
+                camps = []
+            try:
+                positions = tuple(camp.spawn_position() for camp in camps)
             except Exception:
                 positions = ()
             group_positions[key] = positions
@@ -668,7 +691,7 @@ def _populate_map_cache(bot, snap, s23_cache: bool = False) -> None:
                     try:
                         xy.append((int(_p.x), int(_p.y)))
                     except Exception:
-                        continue
+                        xy.append((-1, -1))
                 group_tile_xy[key] = tuple(xy)
             try:
                 tiles = group.spawn_tiles()
@@ -676,7 +699,7 @@ def _populate_map_cache(bot, snap, s23_cache: bool = False) -> None:
                 continue
             group_tiles[key] = tiles
             group_camp_count[key] = len(positions)
-            for camp in group.camps():
+            for _i, camp in enumerate(camps):
                 try:
                     _kind = int(camp.kind())
                 except Exception:
@@ -688,8 +711,28 @@ def _populate_map_cache(bot, snap, s23_cache: bool = False) -> None:
                 else:
                     _hp = float(_design[0])
                     _reach = int(_design[2])
+                # S2.3.2: the camp's SPAWN TILE travels with the entry, so
+                # the per-turn farm goal can point at a LIVE camp without
+                # reading a coordinate out of the engine.
+                _spawn = None
+                _sx = -1
+                _sy = -1
                 try:
-                    camp_info[int(camp.__index__())] = (key, _kind, _hp, _reach)
+                    _spawn = camp.spawn_position()
+                    _sx = int(_spawn.x)
+                    _sy = int(_spawn.y)
+                except Exception:
+                    _spawn = None
+                try:
+                    camp_info[int(camp.__index__())] = (
+                        key,
+                        _kind,
+                        _hp,
+                        _reach,
+                        _spawn,
+                        _sx,
+                        _sy,
+                    )
                 except Exception:
                     continue
         elif is_excluded:
@@ -887,6 +930,20 @@ def _populate_map_cache(bot, snap, s23_cache: bool = False) -> None:
             extra_tiles = []
             for p in positions[1:3]:
                 extra_tiles.append(p)
+            # S2.3.2: the group's SPAN - the Chebyshev diameter of its spawn
+            # tiles. It is the walk the champion has to make ACROSS the
+            # group to clear it: a group whose camps are spread over 30
+            # tiles (the gold rows of 01yellow_brick_road) costs 30 turns
+            # of walking on top of the kill turns, and the clear-time
+            # estimate has to pay for it (the HP term alone priced a
+            # 30-camp row like a 4-camp cluster).
+            span = 0
+            tiles_xy = group_tile_xy.get(key) or ()
+            if tiles_xy:
+                xs = [t[0] for t in tiles_xy if t[0] >= 0]
+                ys = [t[1] for t in tiles_xy if t[1] >= 0]
+                if xs and ys:
+                    span = max(max(xs) - min(xs), max(ys) - min(ys))
             rows.append(
                 (
                     key,
@@ -900,6 +957,7 @@ def _populate_map_cache(bot, snap, s23_cache: bool = False) -> None:
                     cid,
                     region,
                     tuple(extra_tiles),
+                    span,
                 )
             )
             if (
@@ -1173,6 +1231,16 @@ def _read_visible_camps(snap) -> None:
     awake: list = []
     keys = set()
     camp_states: dict = {}
+    # S2.3.2: the LIVE camps of every visible group. A dead camp is never
+    # reported by ``vision.camps()`` (probe-verified 2026-10-24), so every
+    # camp in this list is alive - the list is the group's live spawn tiles
+    # without a single engine read. The farm candidate walks to the nearest
+    # live camp instead of the group's static representative tile: the
+    # static anchor is the FIRST camp's spawn tile, and a champion that
+    # killed that camp used to be PINNED on it forever (the distance stayed
+    # 0, so the score stayed maximal, and the walk refused to move because
+    # we already stood on the goal tile).
+    live_tiles: dict = {}
     for camp in camps:
         try:
             handle = int(camp.__index__())
@@ -1181,9 +1249,19 @@ def _read_visible_camps(snap) -> None:
         info = camp_info.get(handle)
         if info is None:
             continue
-        key, kind, base_hp, reach = info
+        key = info[0]
+        kind = info[1]
+        base_hp = info[2]
+        reach = info[3]
         keys.add(key)
         counts[key] = counts.get(key, 0) + 1
+        spawn = info[4] if len(info) > 4 else None
+        if spawn is not None:
+            entry = live_tiles.get(key)
+            if entry is None:
+                live_tiles[key] = [(spawn, info[5], info[6])]
+            else:
+                entry.append((spawn, info[5], info[6]))
         design = _CAMP_DESIGN.get(kind)
         if design is not None:
             strength = float(design[1])
@@ -1239,6 +1317,7 @@ def _read_visible_camps(snap) -> None:
     snap.awake_monsters = tuple(awake)
     snap.camp_states = camp_states
     snap.group_dead_camps = dead
+    snap.group_live_tiles = live_tiles
     _derive_group_states(snap, counts, dead)
 
 

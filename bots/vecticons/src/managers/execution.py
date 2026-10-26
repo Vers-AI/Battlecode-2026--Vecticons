@@ -402,12 +402,27 @@ def _same_tile(a, b) -> bool:
         return a == b
 
 
+def _tile_order_key(tile):
+    """Deterministic tie-break key for a tile: its coordinates, not its id.
+
+    id() is a memory address, so an id()-based tie-break makes the bot's
+    choice depend on the compiled module's memory layout - a source edit
+    elsewhere in the bot can flip the tie and change the whole match.
+    Coordinates are stable across builds, so the ranking is reproducible.
+    """
+    try:
+        return (int(tile.x), int(tile.y))
+    except Exception:
+        return (0, 0)
+
+
 def _goal_tile_list(snap, goal) -> list:
     """The goal tiles of a candidate, best first.
 
     A single tile stays a single tile; a tuple of tiles is ranked by the
     shared field's distance (the engine's honest path distance) so the
-    nearest free tile is tried first.
+    nearest free tile is tried first. Ties are broken by COORDINATES, not
+    by object identity (see _tile_order_key).
     """
     if goal is None:
         return []
@@ -430,7 +445,7 @@ def _goal_tile_list(snap, goal) -> list:
                 d = fielding.UNREACHABLE
             if d >= fielding.UNREACHABLE:
                 continue
-            ranked.append((d, id(tile), tile))
+            ranked.append((d, _tile_order_key(tile), tile))
         if not ranked:
             return tiles
         ranked.sort(key=lambda item: (item[0], item[1]))

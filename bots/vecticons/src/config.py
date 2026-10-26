@@ -176,9 +176,6 @@ PATH_REANCHOR_READS: int = 12
 PATH_EXPOSURE_STEPS: int = 24
 # How many top-scoring candidates get a path-exposure read per turn.
 PATH_EXPOSURE_CANDIDATES: int = 2
-# Fuel floor below which the optional path-exposure reads are skipped
-# (the exposure term is a risk multiplier, not a candidate source).
-PATH_EXPOSURE_MIN_FUEL: int = 300_000
 # Monster attack range (GameRules: "All monsters have attack range 3").
 MONSTER_RANGE: int = 3
 
@@ -193,8 +190,30 @@ UNLOCK_RADIUS: int = 256
 UNLOCK_MAX_GROUPS: int = 6
 # Gem-equivalent of a banking point that opens up behind a door (an altar).
 ALTAR_UNLOCK_VALUE: float = 400.0
-# Gold -> gem-equivalent conversion for boss drops (a shard costs 30 gold).
-GOLD_TO_GEM: float = 0.05
+# Gold -> gem-equivalent conversion (a shard costs 30 gold).
+#
+# S2.3.2 (2026-10-26): lowered from 0.05 to 0.02, i.e. 50 gold per gem
+# instead of 20. Gold is the SECOND tiebreak (GameRules "compare tributed
+# gems, then lifetime gold earned") and its only sink is the shard shop,
+# which can only run while a champion stands on a spawn tile - so gold is
+# a DELAYED, RATE-LIMITED conversion into combat power, while a gem is
+# the win condition itself (1,000 tribute) and the FIRST tiebreak.
+#
+# The old rate priced a 600-gold row of 30 gold clusters at 30
+# gem-equivalents on 01yellow_brick_road - more than every real gem
+# cluster on that map (26-45 gems, and each of those is discounted by the
+# survival term). The argmax therefore walked 29 tiles across a
+# 30-camp row of ZERO gems instead of the gem clusters: 142 gems
+# collected, 87 of them destroyed by 35 deaths, 46 submitted, and the map
+# lost. At 0.02 the same row is worth 12 gem-equivalents, the gem
+# clusters win the argmax, and the bot collects 310 and submits 263
+# (measured, --release, one clean build each).
+#
+# The rate is NOT a map-specific knob: 01gold_rush improves (639 -> 710
+# gems) and the gold-tiebreak margin on 00stampede is preserved
+# (+978 -> +938 gold earned over the opponent), so the correction does
+# not trade a gold economy for a gem economy elsewhere.
+GOLD_TO_GEM: float = 0.02
 # Expected allies piling into a boss fight (team-stat estimate; the 8-byte
 # channel carries no strength data).
 ASSISTED_DPS_FACTOR: float = 3.0
