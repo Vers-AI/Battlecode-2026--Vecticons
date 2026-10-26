@@ -374,6 +374,83 @@ _POWER_SHARD_BY_STAT: dict[str, str] = {
 
 _STAT_INDEX: dict[str, int] = {"STRENGTH": 0, "FOCUS": 1, "HEALTH": 2}
 
+# ---------------------------------------------------------------------------
+# S2.4 - shopping utility: per-champion emblem family.
+# ---------------------------------------------------------------------------
+# GameRules "Emblem families": five matching shards combine into an emblem
+# and ONLY the completed emblem grants the passive:
+#   MONSTER    +10% damage to camps
+#   POWER      six shards' worth of the chosen stat (no separate passive)
+#   DURABILITY -10% incoming damage
+#   TREASURE   +20% gold gained (ADDS to Vesper Vale's 33% -> 53%)
+#   JUNGLE     -30% damage taken from camps
+#   HOME       50% shorter recall (5 turn ends -> 3)
+#   BRUISER    a spread of stats
+#
+# The FAMILY picks the passive; the STAT variant still comes from the
+# existing CHAMPION_STAT_PRIORITY map, so there is exactly ONE mapping
+# (config.power_shard_for) and ONE buyer (bot.buy_items).
+CHAMPION_EMBLEM_FAMILY: dict[str, str] = {
+    # Melee tanks / farmers: MONSTER (+10% camp damage = faster clears) or
+    # DURABILITY (-10% incoming damage = survive the pack).
+    "RYTH": "MONSTER",        # melee tank, area stun; camps are its economy
+    "VARG": "MONSTER",        # splash melee, farms packs
+    "MARCELLA": "DURABILITY",  # stun-immune tank (tribute gold passive)
+    "REN": "DURABILITY",      # retaliation tank
+    "WILLOW": "DURABILITY",   # healer: keep her alive
+    # The economy engine: Vesper's 33% gold + Treasure's 20% = 53%.
+    "VESPER_VALE": "TREASURE",
+    # Kill-reset farmer: camp damage is her leverage.
+    "VENDETTA": "MONSTER",
+    # Ranged casters: POWER (six shards' worth of the chosen stat).
+    "STELLAR": "POWER",
+    "PRISM": "POWER",
+    "TAVI": "POWER",
+    "CASSI": "POWER",
+    "ISSAC": "POWER",
+}
+
+# ---------------------------------------------------------------------------
+# S2.4 - shopping scoring (gem-equivalents, like every other candidate).
+# ---------------------------------------------------------------------------
+# A shard is a PERMANENT stat gain for the rest of the match, while gold
+# held earns NOTHING (the shop is the only sink and the shop only runs on
+# a spawn tile or while dead), so the shard side of the trade is strictly
+# positive - the only question is how much gold to keep back.
+SHARD_STAT_VALUE: float = 1.0
+# Completing an emblem (five shards of a family + stat) grants the family
+# passive for the whole match - the permanent-stat snowball.
+EMBLEM_COMPLETION_VALUE: float = 3.0
+# The consumable reserve: gold kept back for an altar lock (10g) or a
+# teleport crystal (10g). A shard is bought only when the gold covers the
+# shard AND this reserve.
+CONSUMABLE_RESERVE_GOLD: int = 20
+# The reserve's option value in gem-equivalents (the denial value of a
+# lock / the reach of a teleport). Below SHARD_STAT_VALUE, so a shard
+# beats the reserve as soon as the gold covers both.
+CONSUMABLE_RESERVE_VALUE: float = 0.5
+# Shards needed for one emblem (GameRules: five matching shards combine).
+EMBLEM_SHARD_COUNT: int = 5
+
+
+def _short_name(champion_name) -> str:
+    """Normalise a champion name to its short form ('RYTH')."""
+    if isinstance(champion_name, str):
+        if "." in champion_name:
+            return champion_name.split(".", 1)[1]
+        return champion_name
+    return str(champion_name)
+
+
+def emblem_family_for(champion_name) -> str:
+    """The emblem family this champion builds (GameRules emblem families).
+
+    Unknown champions (the engine's random substitutes, e.g. the new
+    HEART_OF_RUIN) fall back to POWER: six shards' worth of the chosen
+    stat, the family with no situational requirement.
+    """
+    return CHAMPION_EMBLEM_FAMILY.get(_short_name(champion_name), "POWER")
+
 
 # Cached cambc.constants lookups, lazy to avoid the wasm preload.
 _resolved = False
@@ -402,14 +479,22 @@ def stat_index(champion_name: str) -> int:
 
 
 def power_shard_for(champion_name: str):
-    """Return the Power ItemType shard matching this champion's stat priority.
+    """Return the shard this champion buys: its family's shard of its stat.
+
+    S2.4: extended from the POWER-only mapping to the per-champion family
+    map (CHAMPION_EMBLEM_FAMILY) - the FAMILY picks the emblem passive and
+    the existing CHAMPION_STAT_PRIORITY picks the stat variant. One buyer
+    (bot.buy_items), one mapping (here).
 
     Accepts the short name ('RYTH') or the SDK's prefixed form
     ('ChampionType.RYTH'); strips the prefix.
     """
     import cambc
-    if isinstance(champion_name, str) and "." in champion_name:
-        champion_name = champion_name.split(".", 1)[1]
-    stat = CHAMPION_STAT_PRIORITY.get(champion_name, "STRENGTH")
-    attr = _POWER_SHARD_BY_STAT.get(stat, "POWER_SHARD_OF_STRENGTH")
-    return getattr(cambc.ItemType, attr)
+    name = _short_name(champion_name)
+    family = CHAMPION_EMBLEM_FAMILY.get(name, "POWER")
+    stat = CHAMPION_STAT_PRIORITY.get(name, "STRENGTH")
+    attr = f"{family}_SHARD_OF_{stat}"
+    try:
+        return getattr(cambc.ItemType, attr)
+    except AttributeError:
+        return getattr(cambc.ItemType, _POWER_SHARD_BY_STAT.get(stat, "POWER_SHARD_OF_STRENGTH"))

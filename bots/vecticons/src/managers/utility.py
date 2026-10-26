@@ -786,6 +786,117 @@ def _flee_candidates(snap) -> list:
     return []
 
 
+# ---------------------------------------------------------------------------
+# S2.4 - shopping utility (the shard / lock / hold mini-argmax).
+# ---------------------------------------------------------------------------
+# The shop is legal in exactly two states (GameRules "Shards and emblems"):
+# on a spawn tile, and WHILE DEAD (a dead champion keeps its shopping
+# turns for the whole 60-round respawn window - the death window is a
+# FREE gold-to-stats conversion, and the old Gate 1 skipped it).
+#
+# The decision is scored in the same gem-equivalents as every other
+# candidate:
+#   shard = EMBLEM_COMPLETION_VALUE (when the purchase completes the
+#           emblem) + count * SHARD_STAT_VALUE (the permanent stats)
+#   lock  = the denial value of an altar lock (S2.4.3, added there)
+#   hold  = CONSUMABLE_RESERVE_VALUE - the gold kept for the consumable
+#           reserve (a lock / a teleport crystal). Gold held earns nothing.
+# The gold gate does the real work: a shard is bought when the gold covers
+# the shard AND the reserve (30 + 20), so the reserve survives the shop.
+# ---------------------------------------------------------------------------
+
+
+def can_shop(snap) -> bool:
+    """True when this champion may shop this turn (on spawn OR dead).
+
+    GameRules:361 - dead champions retain their shopping turns. The alive
+    case is a pure-Python test against the cached spawn coordinates (no
+    engine read): the snapshot caches them as plain ints.
+    """
+    if not snap.is_alive:
+        return True
+    px, py = snap.origin_xy
+    for entry in getattr(snap, "spawn_coords", None) or ():
+        try:
+            if int(entry[0]) == px and int(entry[1]) == py:
+                return True
+        except Exception:
+            continue
+    return False
+
+
+def _shard_progress(snap, item) -> int:
+    """How many shards of this item we already carry (0..4).
+
+    ``me.item_count()`` is one engine read (the carried counts indexed by
+    ItemType). The engine combines five shards into the emblem, so the
+    shard count is the progress toward the next emblem. It is only read on
+    a shop turn.
+    """
+    try:
+        counts = snap.me.item_count()
+    except Exception:
+        return 0
+    try:
+        return int(counts[int(item)])
+    except Exception:
+        return 0
+
+
+def shop_candidates(snap) -> list[Candidate]:
+    """The shopping mini-argmax: family shard vs altar lock vs hold.
+
+    Returns the candidates; the argmax decides. The HOLD candidate is
+    always present (gold held earns nothing, but the consumable reserve is
+    worth keeping), so the shop decision is a real comparison and not a
+    hardcoded gate.
+    """
+    out: list[Candidate] = []
+    if not can_shop(snap):
+        return [["hold", None, float(config.CONSUMABLE_RESERVE_VALUE), "noshop", None]]
+    short = observation.champion_short_for(snap)
+    item = config.power_shard_for(short)
+    try:
+        cost = int(item.cost())
+    except Exception:
+        cost = 30
+    if cost <= 0:
+        return [["hold", None, float(config.CONSUMABLE_RESERVE_VALUE), "hold", None]]
+    gold = int(snap.gold)
+    reserve = int(config.CONSUMABLE_RESERVE_GOLD)
+    affordable = (gold - reserve) // cost
+    if affordable < 1:
+        # HOLD: the gold does not cover a shard AND the consumable reserve.
+        return [["hold", None, float(config.CONSUMABLE_RESERVE_VALUE), "hold", None]]
+    owned = _shard_progress(snap, item)
+    needed = max(1, int(config.EMBLEM_SHARD_COUNT) - owned)
+    count = int(affordable)
+    score = float(count) * float(config.SHARD_STAT_VALUE)
+    note = f"g={gold} n={count} own={owned}"
+    if count >= needed:
+        # The purchase completes an emblem: the family passive switches on
+        # for the rest of the match.
+        score += float(config.EMBLEM_COMPLETION_VALUE)
+        note += " emblem"
+    out.append(["shop", count, score, note, None])
+    # HOLD is scored second: on a tie the shard wins (it is the permanent
+    # stat; the reserve is already priced into the gold gate).
+    out.append(["hold", None, float(config.CONSUMABLE_RESERVE_VALUE), "hold", None])
+    return out
+
+
+def shop_candidate(snap) -> Candidate | None:
+    """The winning shopping candidate for this turn (None when no shop)."""
+    try:
+        cands = shop_candidates(snap)
+    except Exception as error:
+        _report("shop candidates", error)
+        return None
+    if not cands:
+        return None
+    return best(cands)
+
+
 def _boss_candidates(snap, field, best_other: float, clear_map=None) -> list:
     """Boss candidates: the excluded groups (Monolith, mega-packs).
 
@@ -1293,6 +1404,18 @@ def generate_candidates(snap) -> list[Candidate]:
         out.extend(_boss_candidates(snap, field, best_other, clear_map))
     except Exception as error:
         _report("boss generator", error)
+
+    # S2.4: the shopping decision (family shard vs hold) joins the scored
+    # candidate set. Buying is a FREE parallel action - it costs no
+    # move/attack allowance - so bot.py executes the purchase and then
+    # removes the shop candidate from the argmax set: a purchase must not
+    # shadow the turn's movement / fight decision.
+    try:
+        shop = shop_candidate(snap)
+        if shop is not None and shop[0] == "shop":
+            out.append(shop)
+    except Exception as error:
+        _report("shop generator", error)
 
     # Threat term: fold the path exposure into the top candidates.
     try:

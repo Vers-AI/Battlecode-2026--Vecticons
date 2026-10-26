@@ -645,26 +645,32 @@ def _altar_locked_by_enemy(snap, altar) -> bool:
         return False
 
 
-def shop_on_spawn(snap, champion_name: str) -> bool:
-    """Buy shards of the priority stat on spawn tiles."""
-    _ensure_resolved()
+def buy_item(item, count: int = 1) -> bool:
+    """Buy `count` copies of `item` (the shop action).
+
+    S2.4: the shop is legal on a spawn tile or while dead (GameRules:361);
+    the legality is decided by the utility layer's shopping decision, this
+    function only performs the purchase. `can_buy` is asked for the exact
+    count first and falls back to a single copy (the engine's shop rules
+    can refuse a bulk purchase for reasons the caller cannot see).
+
+    Returns True when a purchase was emitted.
+    """
     me = cambc.me()
-    if not game_map.spawn_region(cambc.Team.ALLY).is_set(me.position()):
-        return False
-    item = config.power_shard_for(champion_name)
-    gold = me.gold_count()
-    cost_each = int(item.cost())
-    if cost_each <= 0:
-        return False
-    max_count = gold // cost_each
-    if max_count <= 0:
-        return False
-    if not me.can_buy(item, max_count):
-        max_count = 1
-    if max_count <= 0:
+    if item is None:
         return False
     try:
-        me.buy(item, max_count)
+        count = int(count)
+    except Exception:
+        count = 1
+    if count <= 0:
+        return False
+    try:
+        if not me.can_buy(item, count):
+            count = 1
+            if not me.can_buy(item, 1):
+                return False
+        me.buy(item, count)
         return True
     except Exception:
         return False

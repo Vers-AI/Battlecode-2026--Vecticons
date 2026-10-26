@@ -100,19 +100,53 @@ class Bot:
         # own process with its own Bot instance, so this is a per-champion
         # fact, not shared state.
         self.claimed_groups = {}
+        # S2.4: rate limit for the shopping evidence prints (a regular
+        # print, so it survives --release).
+        self.shop_logs = 0
 
-    def buy_items(self, champion_short_name: str):
-        me = cambc.me()
-        stat = config.CHAMPION_STAT_PRIORITY.get(champion_short_name, "STRENGTH")
-        if stat == "STRENGTH":
-            item = Item.POWER_SHARD_OF_STRENGTH
-        elif stat == "FOCUS":
-            item = Item.POWER_SHARD_OF_FOCUS
-        else:
-            item = Item.POWER_SHARD_OF_HEALTH
-        count = me.gold_count() // item.cost()
-        if count and me.can_buy(item, count):
-            me.buy(item, count)
+    def buy_items(self, champion_short_name: str, count: int = 1) -> bool:
+        """Buy our emblem-family shard (ONE buyer, ONE mapping).
+
+        S2.4: the item comes from config.power_shard_for - the emblem
+        FAMILY (config.CHAMPION_EMBLEM_FAMILY, e.g. TREASURE for Vesper
+        Vale) and the priority STAT variant (config.CHAMPION_STAT_PRIORITY).
+        The old local if-chain always bought a POWER shard and ignored the
+        family map, so no emblem passive was ever chosen on purpose.
+        """
+        item = config.power_shard_for(champion_short_name)
+        return execution.buy_item(item, count)
+
+    def shop_turn(self, snap, where: str, count: int = 0) -> bool:
+        """The shopping action of a shop turn (on spawn or while dead).
+
+        The utility layer scores the purchase (family shard vs hold vs the
+        consumable reserve); this method only performs it.
+        """
+        if count <= 0:
+            try:
+                cand = utility.shop_candidate(snap)
+            except Exception:
+                cand = None
+            if cand is None or cand[0] != "shop":
+                return False
+            count = int(cand[1])
+        try:
+            short = observation.champion_short_for(snap)
+        except Exception:
+            short = ""
+        bought = self.buy_items(short, count)
+        if bought and self.shop_logs < 3:
+            self.shop_logs += 1
+            try:
+                item = config.power_shard_for(short)
+                name = getattr(item, "name", str(item))
+                print(
+                    f"s24: shop {where} {name} x{count} gold={snap.gold}",
+                    flush=True,
+                )
+            except Exception:
+                pass
+        return bought
 
     def play_turn(self):
         # First-turn bookkeeping.
@@ -200,27 +234,27 @@ class Bot:
                 )
             )
 
-        # Gate 1: channeling / dead.
-        if (
-            not snap.is_alive
-            or snap.is_recalling
-            or snap.is_submitting_gems
-            or snap.is_teleporting
-        ):
+        # Gate 1: channeling.
+        #
+        # S2.4: a DEAD champion is NOT a dead end - dead champions retain
+        # their shopping turns (GameRules:361), so the 60-round death
+        # window is a FREE gold-to-stats conversion. The old gate skipped
+        # it entirely (the death window bought nothing).
+        if snap.is_recalling or snap.is_submitting_gems or snap.is_teleporting:
+            return
+        if not snap.is_alive:
+            try:
+                self.shop_turn(snap, "dead")
+            except Exception:
+                pass
             return
 
         at_spawn = game_map.spawn_region(Team.ALLY).is_set(position)
 
-        # Gate 2: on spawn -> buy shards.
-        if at_spawn:
-            try:
-                short = observation.champion_short_name(int(me.champion_name()))
-            except Exception:
-                short = ""
-            try:
-                self.buy_items(short)
-            except Exception:
-                pass
+        # Gate 2 is GONE (S2.4): the old hardcoded "on spawn -> buy every
+        # POWER shard" gate is replaced by the SCORED shopping decision in
+        # the utility layer (family shard vs hold vs the consumable
+        # reserve), which runs as part of the argmax below.
 
         # Gate 3 is GONE (S2.3): the low-HP recall is a scored candidate now
         # (heal value + gold to spend, discounted by the walk home, scaled
@@ -229,6 +263,24 @@ class Bot:
 
         # Build candidate set; pick argmax.
         candidates = utility.generate_candidates(snap)
+
+        # S2.4: the shopping decision is scored in the argmax (utility).
+        # Buying is a FREE parallel action (it costs no move/attack
+        # allowance), so the purchase is executed here and the shop
+        # candidate is then removed from the argmax set - a purchase must
+        # never shadow the turn's movement / fight decision.
+        shop_cand = None
+        for c in candidates:
+            if c[0] == "shop":
+                shop_cand = c
+                break
+        if shop_cand is not None:
+            try:
+                self.shop_turn(snap, "spawn", count=int(shop_cand[1]))
+            except Exception:
+                pass
+            candidates = [c for c in candidates if c[0] != "shop"]
+
         cand = utility.best(candidates)
 
         # Diagnostic - log every cand.kind for first few rounds.

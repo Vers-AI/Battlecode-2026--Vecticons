@@ -186,6 +186,9 @@ class Snapshot:
     # the engine costs ~1.8k fuel each, so the per-turn code reads them
     # exactly once and works with ints from then on.
     origin_xy: tuple = (0, 0)
+    # Our champion's short name ('RYTH'), cached on the first read (S2.4:
+    # the shopping decision needs it for the emblem family).
+    champion_short: str = ""
     # Group handle -> the group's REPRESENTATIVE tile as (Vec2, x, y). One
     # tile per group is enough for the pool pre-filter and for the honest
     # distance read; the group's other tiles are cached in group_positions.
@@ -441,6 +444,27 @@ def champion_short_name(champion_name_int: int) -> str:
     if "." in raw:
         return raw.split(".", 1)[1]
     return raw
+
+
+def champion_short_for(snap) -> str:
+    """Our champion's short name ('RYTH'), cached on the snapshot.
+
+    S2.4: the shopping decision needs the champion name to pick the
+    emblem family (config.CHAMPION_EMBLEM_FAMILY). Reading it costs one
+    engine call, so it is read once per snapshot and cached.
+    """
+    short = getattr(snap, "champion_short", "")
+    if short:
+        return short
+    try:
+        short = champion_short_name(int(snap.me.champion_name()))
+    except Exception:
+        short = ""
+    try:
+        snap.champion_short = short
+    except Exception:
+        pass
+    return short
 
 
 def draft_id_for(champion_type_int: int) -> int:
