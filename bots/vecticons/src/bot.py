@@ -60,6 +60,7 @@ import config
 from managers import execution
 from managers import intelligence
 from managers import observation
+from managers import scouting
 from managers import utility
 
 Team, Item = cambc.Team, cambc.ItemType
@@ -233,6 +234,19 @@ class Bot:
                     flush=True,
                 )
             )
+
+        # S2.4: the WARD mini-argmax - a FREE parallel action. The ward
+        # spends the champion's trinket charge, NOT the move/attack
+        # allowance (GameRules :116), so it is placed independently of
+        # the turn's action. The engine folds the ward's vision into our
+        # own vision from the next round on, so the observation layer
+        # (visible camps, enemy sightings) and the S2.1/S2.2 signal path
+        # see through it.
+        if snap.is_alive:
+            try:
+                scouting.place_ward(snap)
+            except Exception:
+                pass
 
         # Gate 1: channeling.
         #

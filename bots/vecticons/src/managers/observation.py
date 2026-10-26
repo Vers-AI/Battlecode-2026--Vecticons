@@ -209,6 +209,10 @@ class Snapshot:
     altar_coords: tuple = ()
     # Our spawn tiles as (x, y, Vec2) - the recall walk home.
     spawn_coords: tuple = ()
+    # The ENEMY spawn tiles as (x, y) plain ints (static map data). S2.4:
+    # the ward's "enemy-side altar" test compares the altars' distance to
+    # the two spawn centres.
+    enemy_spawn_coords: tuple = ()
     # Map size (width, height) - cached; game_map.width() is an engine call.
     map_size: tuple = (0, 0)
     # The group handles that pass the killable filter (not the Monolith,
@@ -612,6 +616,7 @@ def _populate_map_cache(bot, snap, s23_cache: bool = False) -> None:
             snap.altar_coords = cache["altar_coords"]
             snap.altar_approach = cache.get("altar_approach", {})
             snap.spawn_coords = cache["spawn_coords"]
+            snap.enemy_spawn_coords = cache.get("enemy_spawn_coords", ())
             snap.map_size = cache["map_size"]
             snap.killable_keys = cache.get("killable_keys", frozenset())
             snap.farm_rows = cache.get("farm_rows", ())
@@ -877,6 +882,21 @@ def _populate_map_cache(bot, snap, s23_cache: bool = False) -> None:
             except Exception:
                 continue
         spawn_coords = tuple(coords)
+        # S2.4: the ENEMY spawn region as plain ints (static map data).
+        # The ward's "enemy-side altar" test needs to know which half of
+        # the map the enemy works; one engine read, once per match.
+        enemy_spawn_coords: tuple = ()
+        try:
+            enemy_positions = game_map.spawn_region(cambc.Team.ENEMY).positions()
+        except Exception:
+            enemy_positions = ()
+        enemy_list = []
+        for tile in enemy_positions:
+            try:
+                enemy_list.append((int(tile.x), int(tile.y)))
+            except Exception:
+                continue
+        enemy_spawn_coords = tuple(enemy_list)
         try:
             map_size = (int(game_map.width()), int(game_map.height()))
         except Exception:
@@ -1025,6 +1045,7 @@ def _populate_map_cache(bot, snap, s23_cache: bool = False) -> None:
         "altar_coords": altar_coords,
         "altar_approach": altar_approach,
         "spawn_coords": spawn_coords,
+        "enemy_spawn_coords": enemy_spawn_coords,
         "map_size": map_size,
         "killable_keys": killable_keys,
         "farm_rows": farm_rows,
@@ -1056,6 +1077,7 @@ def _populate_map_cache(bot, snap, s23_cache: bool = False) -> None:
     snap.altar_coords = altar_coords
     snap.altar_approach = altar_approach
     snap.spawn_coords = spawn_coords
+    snap.enemy_spawn_coords = enemy_spawn_coords
     snap.map_size = map_size
     snap.killable_keys = killable_keys
     snap.farm_rows = farm_rows

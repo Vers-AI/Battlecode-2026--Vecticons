@@ -452,6 +452,27 @@ def emblem_family_for(champion_name) -> str:
     return CHAMPION_EMBLEM_FAMILY.get(_short_name(champion_name), "POWER")
 
 
+# ---------------------------------------------------------------------------
+# S2.4 - ward mini-argmax (the free parallel action).
+# ---------------------------------------------------------------------------
+# The ward's own vision radius and its placement radius are ENGINE
+# constants (cambc.constants.WARD_VISION_RADIUS / WARD_PLACEMENT_RADIUS);
+# the defaults below are the documented values (6 and 2) and are replaced
+# by the engine's own numbers in resolve().
+WARD_VISION_RADIUS: int = 6
+WARD_PLACEMENT_RADIUS: int = 2
+# Information-gain weights (the ward's score is the sum of the covered
+# interesting tiles). Camps first: the map's gem economy is the thing
+# worth seeing; enemy-side altars second (they are where the enemy
+# tributes); the objective path last (we walk it anyway).
+WARD_CAMP_WEIGHT: float = 3.0
+WARD_PATH_WEIGHT: float = 1.0
+WARD_ALTAR_WEIGHT: float = 2.0
+# How many placeable tiles are checked for legality per round (the top N
+# by the coarse score). The candidate set is the 5x5 box around us, so
+# this bounds the whole per-turn cost of the argmax.
+WARD_CANDIDATE_CAP: int = 5
+
 # Cached cambc.constants lookups, lazy to avoid the wasm preload.
 _resolved = False
 TRIBUTE_RANGE: int = 0
@@ -462,7 +483,8 @@ KILL_GOLD_ON_DEATH: int = 0
 
 def resolve() -> None:
     """Resolve cached engine constants exactly once. Safe to call repeatedly."""
-    global _resolved, TRIBUTE_RANGE, CAPTURE_ROUNDS, RESPAWN_ROUNDS, KILL_GOLD_ON_DEATH
+    global _resolved, TRIBUTE_RANGE, CAPTURE_ROUNDS, RESPAWN_ROUNDS
+    global KILL_GOLD_ON_DEATH, WARD_VISION_RADIUS, WARD_PLACEMENT_RADIUS
     if _resolved:
         return
     import cambc.constants as _constants
@@ -470,6 +492,14 @@ def resolve() -> None:
     CAPTURE_ROUNDS = int(_constants.CAPTURE_TIME)
     RESPAWN_ROUNDS = int(_constants.RESPAWN_TIME)
     KILL_GOLD_ON_DEATH = int(_constants.KILL_GOLD)
+    try:
+        WARD_VISION_RADIUS = int(_constants.WARD_VISION_RADIUS)
+    except Exception:
+        pass
+    try:
+        WARD_PLACEMENT_RADIUS = int(_constants.WARD_PLACEMENT_RADIUS)
+    except Exception:
+        pass
     _resolved = True
 
 
