@@ -75,6 +75,45 @@ Order: S2.0 → S2.1 → S2.2 → S2.3 → S2.4 → S2.5. Tuning (S2.5) always r
   - Traceability: TIME_DISCOUNT is the base of the exponential discount curve (`TIME_DISCOUNT ** turns` in every score); its sweep tunes curve steepness (0.7 ≈ near-sighted, 0.95 ≈ far-sighted)
   - Done when: zero PLACEHOLDER tags remain in config.py (each replaced with a tuned-value source citation; target list re-enumerated from the live config after S2.3/S2.4 — see the re-enumeration bullet); 40-map A/B ≥ the S2.4 record (stage ratchet); 0 botFaults both sides; fuelExhausted per side ≤ the S2.4 reference.
 
+## FINAL SPRINT PLAN (proposed 2026-10-26 — AWAITING OWNER AUDIT; not started)
+
+Standing facts: this is the LAST sprint (locks Sun 1 Nov 23:59 UK). Ladder is live now — every series
+earns/loses rating; the sprint lock exists to climb, not to park. First series played: 1-4 vs CompleX
+(version 2 on the platform), kills 84-1 against us, 258 gems stolen via champion kills, gold-tiebreak
+loss 13,553-4,023 on 00contest. Version 3 (S2.3.2 + YBR fix) submitted today. Owner ruling 2026-10-26:
+dominance IS economy (kills = respawn denial 3% of game + capture-reset removal + gold snowball + tiebreak).
+
+Proposed execution order (rationale: ladder-bleeding gap first; shopping feeds fighting; tuning always last):
+
+- [ ] **F1. Dominance economics** (B1 pulled forward — the 84-1 fix; series data is the evidence brief, matches/sprint2-series/complex/)
+  Fight-back: a champion under champion attack must weigh fight/flee — never farm-through-death (the
+  measured bug: 84 deaths while the argmax kept picking farm). Fight score must include the bag
+  (KILL_REWARD_GOLD + enemy.gem_count() — verify whether the S2.3 bag-scoring actually shipped).
+  Courier-hunt: chase candidates within path distance, (bag + 50g) x discount^chase x P(win); a loaded
+  courier outvalues most camps; ~3 chase candidates max (fuel). Gold-tiebreak maps: Monolith-gold farming
+  + kill-gold count on gem-dead maps (contest lost exactly this way).
+  Gates: pool-70 campaign >= 39-31 / 31,036 / fuel <= 5,922 / 0 faults (records/p4-pool70 reference);
+  local elkring/gemfight A/B: our champion kills double digits per contested map WITHOUT gems tanking;
+  YBR >= 100 gems, elk 72, boss_battle 0 courier deaths hold. Submit as v4 on PASS.
+- [ ] **F2. S2.4 Scouting & shopping** (board design complete — 3 bullets, audited by owner + external review)
+  Shopping FIRST inside the stage (shards = permanent stats = the snowball that feeds dominance; also
+  the 60-round dead-window shopping gap). Wards second (free parallel action, information feeds chase +
+  bank-safety). Altar locks last (enemy-locks-only design already ruled).
+  Gates: same campaign ratchet vs F1's verified record + fuel guard + baseline byte-identity. Submit as v5.
+- [ ] **F3. New-map class fixes** (ladder exposure: the pool-70 audit flags — adgato_* 1-4 class,
+  02stalactites fuel 959, 00the_line/00vault/02gift_wrapping inert class). Diagnosis before prescription
+  (replay-watch rule); each fix is a policy, not a map patch. Gates: ratchet. Submit as v6 if time allows.
+- [ ] **F4. S2.5 tuning campaign** (always last; script-driven = token-light; re-enumerate clusters AFTER
+  F1-F3 land since they add tunables: chase weights, P(win) knobs, shop weights. Screening subsets allowed,
+  winners confirmed on full 70). Gates: zero PLACEHOLDERs remain; ratchet vs F3/F2 record.
+- [ ] **F5 (continuous). Ladder watch** (armed): every series downloaded on completion; kill differential
+  tracked per submission — the 84-1 number is the baseline to beat; each version's real-ladder effect
+  measured, feeding the next fix's evidence brief.
+
+Time budget across the week (owner cost discipline): one worker run at a time, capped hours, commit
+discipline, gates-pass = stop. Estimated worker-hours: F1 ~4h (evidence-rich), F2 ~3h, F3 ~2h, F4 compute
++ ~1h model. Verification campaigns ~10 min each on my side. Submissions owner-gated.
+
 ## Backlog (unscheduled — dependency-ordered)
 
 Dependency note: B1 waits on S2 signaling proving measurable value; B2's linked-instance kits want the channel live first; B3 is blocked by the Telemetry v2 schema open question below.
