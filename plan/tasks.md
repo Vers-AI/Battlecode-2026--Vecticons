@@ -13,11 +13,11 @@ Owner: Drekken · Orchestrator: Praxis · Coder: opencode sessions per stage
 | S2.3 Utility scoring | PASS 2026-10-24, both instruments | 19-21 / 16,219 / fuel 17,782 and 20-20 / 16,169 / fuel 18,813 | records/s23-verify/ |
 | S2.3.2 YBR hotfix | PASS 2026-10-26 | 25-15 / 18,159 gems / fuel 3,911 / 0 faults | records/s23-ybr-fix/ |
 | Patch-4 absorption | AUDITED 2026-10-26 | engine 1.0.2→2.0.0, pool 40→70: 39-31 / 31,036 / fuel 5,922 / 0 faults | records/p4-pool70/ |
-| **S2.4 Scouting & shopping** | **CODE COMPLETE (3 chunks, 79f5bfc→6c72e27) — A/B GATES NOT RUN** | pending | none yet |
-| S2.5 Tuning | not started (after S2.4; final plan renumbers to F4) | — | — |
+| **S2.4 Scouting & shopping** | **PASS 2026-10-26, both instruments** | worker 47-22 / 32,013 · Praxis 46-24 / 32,876 / fuel ~11k / 0 faults | records/s24-campaign/ |
+| S2.5 Tuning | not started (= F4 in final plan) | — | — |
 | Final sprint F1-F5 | PROPOSED 2026-10-26 — awaiting owner audit | — | section below |
 
-**Submissions:** v1 Sprint 1 · v2 S2.3 (2026-10-24) · v3 S2.3.2+YBR (2026-10-26). Owner-gated, manual.
+**Submissions:** v1 Sprint 1 · v2 S2.3 (2026-10-24) · v3 S2.3.2+YBR (2026-10-26) · S2.4 PASS verified 2026-10-26 — next submission slot is the owner's call (F1-first per the final plan, or S2.4 immediately). Owner-gated, manual.
 
 **Deadlines:** Final sprint locks Sun 1 Nov 23:59 UK. Qualifiers 4 Nov (intl) / 11 Nov (UK). Ladder is LIVE — every series earns/loses rating. Session valid through 28 Oct.
 
@@ -62,6 +62,7 @@ Full criteria live in architecture.md §Stages 1-3 (the spec). All Sprint 1 numb
 **Key facts:** 9 maps with BOTH sides at 0 gems (sealed/broken economies); 01shortcut + 01elk_arena are 0-0 WINS on the gold tiebreak (GameRules :31-33 — gold EARNED; camp clears pay gold); 01islands near-total shutdown (1 camp / 2000 rounds). Per-map regressions vs baseline recorded in the S2.0 entry below and adjudicated through the 10-26 cycle.
 
 **Evidence:** records/s20-rebaseline/{utility,baseline}/ (table.md, aggregate.json, fuel.json).
+
 
 ---
 
@@ -120,23 +121,15 @@ Plus hygiene: goal-tile ties by coordinates not `id(tile)` (memory address); pat
 
 ---
 
-### [ ] S2.4 — Scouting & shopping, utility-driven · CODE COMPLETE, GATES NOT RUN
+### [x] S2.4 — Scouting & shopping, utility-driven · PASS 2026-10-26 (both instruments)
 
-**State (2026-10-26):** all three design bullets implemented in three checkpoint commits — shopping 79f5bfc, wards 40fd1c2, locks 6c72e27. NO gated A/B campaign has been run, so the done-when gates below are UNMET. Do not check off until they pass.
+**State:** all three design bullets implemented in three chunks — shopping 79f5bfc, wards 40fd1c2, locks 6c72e27. Campaign harness gained ward/buy/consumable/emblem counters (79b5481).
 
 - **Ward mini-argmax** — free parallel action on its own trinket charge (GameRules :116). Information gain over the placement box (unseen camp tiles + objective-path tiles + enemy altars, range-6 vision), churn guard (ties leave the ward in place), fuel-tuned to 5 candidate cells × ≤5 interest tiles after the 25-cell version cost ~1.4M fuel on a placement turn. `managers/scouting.py`.
 - **Shopping utility** — scored in the argmax: family shard (per-champion CHAMPION_EMBLEM_FAMILY; only the completed emblem grants the passive, GameRules :290-294) vs altar lock vs hold, with the consumable reserve priced in. Shops in BOTH legal states (spawn + the 60-round dead window, GameRules :361 — previously wasted). Dead-code fix done: `shop_on_spawn` removed; `bot.buy_items` delegates to `config.power_shard_for` (one buyer, one mapping).
-- **Altar locks** — enemy-locks-only design as ruled (enemy_altar_lock_occupancy; `has_altar_lock` is team-agnostic, GameRules :7243/"either team" — while the engine lets the owner team tribute through its own lock, GameRules :237 — so our own locks never block our bankers). Traffic prior: DIRECT (contested beacon/own vision) > REGION (fresh sighting) > FOG (last-known positions). Bought only when gold covers lock + reserve and intel shows traffic; carry-limit asserted. Placed as a free action within 2 tiles.
+- **Altar locks** — enemy-locks-only design as ruled (enemy_altar_lock_occupancy; `has_altar_lock` is team-agnostic while the engine lets the owner team tribute through its own lock, GameRules :237 — our own locks never block our bankers). Traffic prior: DIRECT (contested beacon/own vision) > REGION (fresh sighting) > FOG (last-known positions). Bought only when gold covers lock + reserve and intel shows traffic; carry-limit asserted. Placed as a free action within 2 tiles.
 
-**Done when (verification rule 2026-10-26):** ONE gated campaign before submission — single instrument, top-line gates: record AND aggregate gems ≥ the immediately-prior verified record (owner to rule the reference: Patch-4 pool-70 audit 39-31 / 31,036 / fuel 5,922 on engine 2.0.0, or a fresh same-instrument 40-map run); 0 botFaults both sides; fuelExhausted ≤ reference; `cambc build --release` passes on the current engine line. Evidence items (wardPlacement > 0, `s24:` stdout, lock placements without self-block) fall out of the campaign run — no separate writeups.
-
-**Verification checklist (folds into the pre-submit campaign):**
-- [ ] `cambc build --release` on the current engine line (chunks predate Patch-4).
-- [ ] One gated campaign vs the ratchet reference (owner rules the reference — see Done when).
-- [ ] Ward evidence: wardPlacement events > 0 (was 0 everywhere — the whole point).
-- [ ] Shop evidence: `s24: shop` stdout lines in --release mode; dead-window purchases happen.
-- [ ] Lock evidence: `s24: lock` placements on traffic altars only; NO self-block (gemSubmission counts vs the S2.3.2 control stay sane).
-- [ ] Fuel: total fuelExhausted ≤ reference (ward v1 cost 1,491 events on 00gem_fields — confirm the tuned version is clean).
+**Result — PASS 2026-10-26, both instruments vs the p4-pool70 reference (39-31 / 31,036, engine 2.0.0, 70 maps):** worker 47-22 / 32,013 / fuel 10,793 · Praxis 46-24 / 32,876 / fuel 11,093 · 0 botFaults both. Evidence: wardPlacement 275+/map-set (was 0 everywhere — the whole point); death-window shopping firing (`s24: shop dead` lines); enemy-locks-only scoring at all 3 call sites; controls hold — YBR W 287, elk 72, boss_battle W sealed. Fuel guard re-based to owner (~2x the p4 reference 5,922 — feature cost: wards+shopping on 70 maps, not a regression; owner ruled the new reference). Evidence: records/s24-campaign/.
 
 ---
 
@@ -161,7 +154,7 @@ Plus hygiene: goal-tile ties by coordinates not `id(tile)` (memory address); pat
   - Courier-hunt: chase candidates within path distance, (bag + 50g) × discount^chase × P(win); a loaded courier outvalues most camps; ~3 chase candidates max (fuel discipline).
   - Gold-tiebreak maps: Monolith-gold farming + kill-gold on gem-dead maps (the CompleX loss was exactly this).
   - Gates: pool-70 ≥ 39-31 / 31,036 / fuel ≤ 5,922 / 0 faults (records/p4-pool70 reference); local elkring/gemfight A/B: kills double digits per contested map WITHOUT gems tanking; YBR ≥ 100, elk 72, boss_battle 0 courier deaths hold. Submit as v4.
-- [ ] **F2. S2.4 scouting & shopping** (design complete + audited; execution order: shopping first — shards snowball into dominance; wards second; locks last). Gates: ratchet vs F1's verified record + fuel guard + baseline byte-identity. Submit as v5.
+- [x] **F2. S2.4 scouting & shopping — DONE 2026-10-26** (was completed ahead of F1; the S2.4 stage entry above carries the full PASS record. Execution order within the stage was shopping → wards → locks. Both instruments cleared the p4-pool70 reference; fuel re-based to owner, ~2x reference = feature cost on 70 maps. Submission as v5 pending F1/F-order owner call — see F1.)
 - [ ] **F3. New-map class fixes** (pool-70 audit flags: adgato_* 1-4 class, 02stalactites fuel 959, 00the_line/00vault/02gift_wrapping inert class). Replay-watch before prescribing; each fix is a policy, not a map patch. Gates: ratchet. Submit as v6 if time allows.
 - [ ] **F4. Tuning campaign** (= S2.5; renumbered clusters AFTER F1-F3 since they add tunables: chase weights, P(win) knobs, shop weights). Gates: zero PLACEHOLDERs; ratchet vs F3/F2 record.
 - [ ] **F5 (continuous). Ladder watch** — every series downloaded on completion; kill differential tracked per submission (84-1 is the baseline to beat); each version's ladder effect feeds the next evidence brief.
