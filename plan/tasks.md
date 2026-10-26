@@ -1,133 +1,189 @@
 # Vecticons Task Board
 
-Owner: Drekken. Orchestrator: Praxis. Coder: opencode sessions per stage.
-Sprint 1: **COMPLETE** — locked Sun 18 Oct 23:59 BST (submission upload is the owner's manual step). Sprint 2 deadline: platform locks Sun 25 Oct 23:59 UK, but **owner rule 2026-10-23: submit no later than SATURDAY 24 Oct** (no work on Sundays; UK clocks change the 25th itself — Sunday is platform buffer only, not a working day). Sprint 3: Sun 1 Nov. Qualifiers: 4 Nov (intl) / 11 Nov (UK). Submission is the owner's manual step (`cambc submit` CLI-capable; owner-gated; session valid through 28 Oct).
+Owner: Drekken · Orchestrator: Praxis · Coder: opencode sessions per stage
 
-Rules for the coding AI:
-- Read `plan/architecture.md` fully before starting a stage. It is the spec; this file tracks state.
-- Check off a stage ONLY when its "Done when" criteria pass, verified with real cambc runs (not opinion).
-- Commit after each stage passes. Never edit `plan/` spec content without noting the change in the commit message.
-- Never touch YouTube, external services, or the submission portal. Repo and local matches only.
+## Status at a glance (2026-10-26)
 
-## Stages
+| Track | State | Verified record | Evidence |
+|---|---|---|---|
+| Sprint 1 (Stages 0-3) | COMPLETE (locked Sun 18 Oct) | 17-map 8W-9L vs baseline 5W-12L — PRE-PATCH, stale for gates | d63cbc8 |
+| S2.0 Re-baseline (patch-1 pool) | PASS 2026-10-22 | 16-24 / 13,392 gems / fuel 24,393 / 0 faults | records/s20-rebaseline/ |
+| S2.1 Beacon protocol | PASS 2026-10-21 | 40/40 maps, signals written+read, 0/0 faults | log entry 2026-10-21 21:15 |
+| S2.2 Intel consumers | PASS 2026-10-23 | 17-23 / 13,916 gems | records/s22-intel/ |
+| S2.3 Utility scoring | PASS 2026-10-24, both instruments | 19-21 / 16,219 / fuel 17,782 and 20-20 / 16,169 / fuel 18,813 | records/s23-verify/ |
+| S2.3.2 YBR hotfix | PASS 2026-10-26 | 25-15 / 18,159 gems / fuel 3,911 / 0 faults | records/s23-ybr-fix/ |
+| Patch-4 absorption | AUDITED 2026-10-26 | engine 1.0.2→2.0.0, pool 40→70: 39-31 / 31,036 / fuel 5,922 / 0 faults | records/p4-pool70/ |
+| **S2.4 Scouting & shopping** | **CODE COMPLETE (3 chunks, 79f5bfc→6c72e27) — A/B GATES NOT RUN** | pending | none yet |
+| S2.5 Tuning | not started (after S2.4; final plan renumbers to F4) | — | — |
+| Final sprint F1-F5 | PROPOSED 2026-10-26 — awaiting owner audit | — | section below |
+
+**Submissions:** v1 Sprint 1 · v2 S2.3 (2026-10-24) · v3 S2.3.2+YBR (2026-10-26). Owner-gated, manual.
+
+**Deadlines:** Final sprint locks Sun 1 Nov 23:59 UK. Qualifiers 4 Nov (intl) / 11 Nov (UK). Ladder is LIVE — every series earns/loses rating. Session valid through 28 Oct.
+
+**Engine/pool state (Patch-4, 2026-10-26):** platform = CLI 4.0.0 / engine 2.0.0, pool 70. Kept-40 sha-unchanged; new-30 sha-verified. Mechanics rebalance (Prism/Vesper/Marcella/Heart of Ruin). Records pre-dating Patch-4 were measured on engine 1.0.2 — cross-engine comparisons are apples-to-oranges; the current ratchet reference is the pool-70 audit (records/p4-pool70/).
+
+---
+
+## Rules for the coding AI
+
+1. Read `plan/architecture.md` fully before starting any stage. It is the spec; this file tracks state.
+2. Check off a stage ONLY when its "Done when" criteria pass, **verified with real cambc runs** (not opinion).
+3. Commit after each stage passes. Never edit `plan/` spec content without noting the change in the commit message.
+4. Never touch YouTube, external services, or the submission portal. Repo and local matches only.
+
+**Standing process rules (owner rulings):**
+- Eyes on the replay before any prescription; data alone is insufficient.
+- System policies over scenario whack-a-mole: craft policies that produce correct behavior; a scenario fix is a smell (owner directive 2026-10-22, permanent, all genres).
+- **Verification rule (owner ruling 2026-10-26 — replaces the per-stage A/B ceremony):** ONE gated campaign before EVERY platform submission — single instrument, single host, top-line gates only (record AND aggregate gems ≥ the immediately-prior verified record · 0 botFaults both sides · fuelExhausted ≤ prior reference · `build --release` passes). Mid-work feedback is a 3-map spot-check (~2 min). No double-instrument stage verification, no per-map writeups, no per-map analysis unless a gate fails.
+- Same-bytes comparisons only: per-map deltas inside the 100-gem noise floor are meaningless when source bytes differ (measurement note, records/s23-ybr-fix/layout-noise.md).
+
+---
+
+## Sprint 1 — COMPLETE (Stages 0-3, locked Sun 18 Oct 23:59 BST)
 
 - [x] **Stage 0 — Draft memory format** (spec frozen in architecture.md; layout in draft.py)
 - [x] **Stage 1 — Draft manager** (8c13981: 17/17 maps, 0 exceptions, payloads 18-39 B)
-  - Done when: 17 maps, zero exceptions, team_size() logged, ≤1,024 B submitted, `cambc build --release` passes
-- [x] **Stage 2 — Knowledge manager + baseline loop** (d292792: 10/10 maps; 9 cycles + 1 cycle-miss on contest)
-  - Sub-task: harness first — record actual field names in architecture.md §Stage 2, restate criteria
-  - Done when: 10 named maps (ambush…lanes), zero exceptions, ≥1 clear→capture→tribute cycle per match
+- [x] **Stage 2 — Knowledge manager + baseline loop** (d292792: 10/10 maps; 9 cycles + 1 documented cycle-miss on contest)
 - [x] **Stage 3 — Utility layer** (d63cbc8: 17/17 maps utility ≥ baseline; 0 botFaults)
-  - First: copy Stage 2 bot.py → bot_baseline.py
-  - Done when: 17-map record ≥ baseline record; per-map table in commit message
 
-## Sprint 2 — Intel, signaling & utility upgrades
+Full criteria live in architecture.md §Stages 1-3 (the spec). All Sprint 1 numbers are PRE-PATCH and stale for later gates.
 
-Scope: intel + signaling (owner, 2026-10-21); amended same day to add utility scoring upgrades (S2.3), scouting & shopping (S2.4), and the PLACEHOLDER tuning campaign (S2.5; renumbered from S2.4 at the S2.4 insert). Out of scope: Telemetry v2, champion-pool expansion, negotiation protocol (Backlog below). Enemy-champion handling is distributed: detect/remember (intelligence.py, merged @ 6d682a2), share (S2.1/S2.2), fight/flee + economic avoidance (S2.3), intel-driven locks (S2.4). Groundwork: per-champion enemy fog memory (`update_enemy_memory` per play turn, `recent_sightings()` TTL-filtered read path, `ENEMY_TRACK_TTL=60`). Facts only; no consumer wired yet.
+---
 
-Pool note (platform patch, log 2026-10-21 20:26): the map pool is now 40 patched maps — all 17 old maps content-changed (sha-verified), so every Sprint 1 reference number (8W-9L, 12,769 gems) is STALE. S2.0 re-baselines; every later A/B gate compares against the S2.0 record, never the pre-patch numbers.
+## Sprint 2 — stages
 
-Order: S2.0 → S2.1 → S2.2 → S2.3 → S2.4 → S2.5. Tuning (S2.5) always runs last, after all behavior changes — scoring, scouting, shopping — have settled.
+### [x] S2.0 — Re-baseline on the patched 40-map pool · PASS 2026-10-22 20:05
 
-- [x] **S2.0 — Re-baseline on the patched 40-map pool** (platform patch 2026-10-21, log 20:26; **PASS 2026-10-22 20:05**)
-  The pool is now 40 maps (was 17; 00/01-style names) and ALL 17 old maps have new content (sha-verified) — every Sprint 1 number was measured on pre-patch files. Run the Sprint 1 utility bot AND bot_baseline on the new pool and record the fresh reference: per-map gems, W/L record, aggregate, botFaults.
-  **RESULT (2026-10-22, engine CLI 3.0.4 / engine 1.0.2 — the platform line; the repo venv's 2.2.4/0.0.3 CANNOT run ~19 of the 40 patched maps, `engine error 7`, verified deterministically):** Sprint 1 submission bot (3df0bee, isolated worktree) vs starter-python: **16-24, 13,392 gems, 0 botFaults**. Frozen bot_baseline (3df0bee tree, bots/baseline-s2): **13-27, 9,480 gems, 0 botFaults**. Full tables: `records/s20-rebaseline/{utility,baseline}/table.md` (committed); raw per-map stats: `results-raw/` (gitignored). Harness: `scripts/run_pool.py` (reusable for every later A/B gate; schema-pinned: submittedGems is a STRING — cast at parse). `cambc build --release` passes both bots on 3.0.4. Baseline-vs-utility on the new pool: +3 wins, +3,912 gems — the utility layer still beats the hardcoded gates on patched maps.
-  - Done when: fresh baseline table committed to the board (replaces the stale 8W-9L / 12,769 references in every later done-when); 0 botFaults both sides; `cambc build --release` passes on the new map set. **PASS** — this record is the reference for every later A/B done-when (S2.2/S2.3/S2.4/S2.5 compare against 16-24 / 13,392, never the pre-patch numbers).
-  - Notables from the table (CORRECTED 2026-10-22 after external review caught a mislisting in the original note): **9** maps show BOTH sides at 0 gems (00contest, 00lost_world, 00pilgrimage, 00stampede[130 camps cleared], 01boss_battle, 01islands, 01shortcut, 01the_farm, 01elk_arena) — banking appears physically blocked or economically broken on the patched pool for BOTH bots; several are the sealed/monolith-adjacent archetypes S2.3's honest-distance work targets. Note 01shortcut and 01elk_arena are 0-0 WINS — decided by the gold tiebreak (GameRules :31-33: gold EARNED, not held; camp clears pay gold), so zero-gem maps still swing W/L. 01islands: 1 camp cleared in 2000 rounds, 0 gems — near-total economic shutdown. Per-map regressions vs baseline worth S2.3/S2.5 attention: 01elk_arena 0 vs 144, 01yellow_brick_road 170 vs 472, 00lanes 595 vs 730, 01starvation 512 vs 536, 00split 350 vs 413 (mechanism VERIFIED 2026-10-23, owner eyes-on pass — and a provenance correction: the center pack was MEASURED at 5,520 HP by opencode's 2026-10-21 21:50 probe (the same probe read stampede's 6-elk/14,400 pack exactly); 8 camps / 72 gems per the 2026-10-23 draft probe. 5,520 > the 5,000 KILLABLE_HP_CAP, so the argmax never sees the map's only gem economy; the baseline's unfiltered attack-in-range reflex farms it in passing — the layer asymmetry IS the 0-vs-144 delta. The 22:55 rejection of the reviewer's figure was wrong: 5,520 is from our own 21:50 probe log, not invented — the reviewer read our log more carefully than I did. What held from that pushback: probe+replay-before-prescribing, which the owner ruled into process and the eyes-on pass paid off. The 19:00 entry's "7,200+" was algebra from a qualitative "several Elks" count — corrected here; the conclusion (over-cap → excluded) is invariant across both figures).
+**Why:** platform patch replaced all 17 maps (sha-verified) — every Sprint 1 number measured on dead files.
 
-- [x] **S2.1 — Signal protocol on the 8-byte shared channel** (PASS 2026-10-21: 40/40 pool maps, botFaults 0/0, all draft slots writing own bytes; design: region-quantized beacon — owner's choice)
-  Layout (implemented in `managers/intelligence.py`, documented at bot.py top): byte i (owner: champion i, ally draft order) = bits 0-3 region id (4x4 grid over the map), bit 4 altar-contested flag (enemy within `SIGNAL_ALTAR_CONTEST_RADIUS=2` of any altar — GameRules altar-lock reach), bits 5-7 freshness (0 = none, zero byte = nothing; 1-7 = ~8-round age buckets, ~55-round horizon ≈ ENEMY_TRACK_TTL). Champion kind dropped by quantization (accepted limitation). Round-stamp conflict resolved by REMOVING the all-champion bytes 0-3 stamp (no consumer; beacon supersedes it; frozen bot_baseline.py keeps its own). draft.py byte 2 now written spec-true as the ownership bitmap ((1<<n)-1; Stage 1 shipped 0 — nothing used the channel). Fixed en route: ChampionType vs ChampionDraft enum divergence (Cassi & Issac shift) silently gave 3 of 5 champions no channel index AND misread their draft-zone records since Stage 2 — shared `observation.draft_id_for()` now feeds both `_channel_index` and `_zone_id_for_me`. Known limitation: a dead writer's byte freezes until respawn. Verified under CLI 3.0.4 / engine 1.0.2 on the patched 40-map pool (owner's call): signals written+read, 0 errors, 0 botFaults on all 40; `cambc build --release` OK. New engine champion "Heart of Ruin" (random substitutes) resolves through the 2.2.4 shim and writes its byte correctly.
-  - Done when: signals written AND read across the patched 40-map pool; no cross-byte writes (ownership respected); 0 botFaults both sides; `cambc build --release` passes.
-- [x] **S2.2 — Intel consumers** (scope pinned 2026-10-23 after external-review adjudication — owner-approved: MINIMAL pre-S2.3 consumers only; **PASS 2026-10-23 19:38**)
-  Broadcast local sightings via the owned bytes; fold ally-broadcast enemy positions into the observation snapshot alongside `enemy_memory`. **Scope pin — the only S2.2 consumers are:** (a) S2.1's beacon altar-contested flag → bank-candidate handling (contested altars score down / are skipped for banking), and (b) a crude region-risk constant estimated from broadcast sighting density per region (architecture.md's own "crude constant per region" line) folded into bank/farm scores as a multiplier. P(survive), fight/flee, win-probability, and the carried-gem risk term are S2.3 deliverables — building them in S2.2 is out of scope (the original text referenced them; that was the seam the review caught).
-  - Done when: 40-map A/B — per-map record AND aggregate submitted gems ≥ the S2.0 re-baseline record (stage ratchet: S2.0 is the immediately-prior verified record; pre-patch 8W-9L / 12,769 are stale); 0 botFaults both sides (the sprint-level done-when from architecture.md); beacon-contested flag demonstrably changes at least one bank decision (bot stdout or replay evidence).
-  - **RESULT (gated campaign `s22-rf85`, CLI 3.0.4/engine 1.0.2, --release, vs starter-python; committed record `records/s22-intel/`): 17-23 / 13,916 gems / botFaults 0/0 vs the S2.0 ratchet 16-24 / 13,392 → PASS (+1 W, +524 gems); campaign-wide vs S2.0: camps +515, deaths −267.** Implementation: `intelligence.fold_ally_intel` (parsed beacons + per-region fresh-sighting density + contested-altar set, facts only) wired in bot.py; consumer (a) contested altars score down by BANK_CONTEST_PENALTY=0.5 (score-down, not skip — all-contested maps still bank); consumer (b) REGION_RISK_FACTOR**count=0.85 on bank+farm; `altar_contested` refactored onto an exact per-altar local check (own-vision ground truth where the beacon's region quantization mis-attributes). Required execution fix: `altar_approach_goals(snap, altar)` honors the CHOSEN altar (default arg keeps frozen bot_baseline byte-identical) — without it, a scored-down contested pick walks to the nearest altar's ring, never enters tribute range of its choice, and stalls carrying gems. Tuning response curve (one knob at a time): REGION_RISK_FACTOR 0.70 → 14-26/12,977 FAIL — farm redirect abandoned enemy-trafficked GEM economies for safe GOLD clusters (01gold_rush: +110 camps, 33 gems, ~11.7k gold held; bank delivery intact everywhere, no hoard: collected==submitted); 0.85 → PASS. Evidence clause: 162 `s22:` stdout lines across 14 maps (flag scored down a chosen bank candidate, e.g. `d=6 contest risk=1 altar=(12,17)`; rate-limited regular print so it survives --release); altar-pick FLIPS: 0 under the instrumented counterfactual (utility compares argmax with/without the penalty every bank turn) — structural: a ×0.5 flip needs altars within ~7 tiles, and close pairs (01starfish (23,17)/(26,17), 3 tiles) share a 4x4 beacon region, so region flags are all-or-nothing per region; sub-region flag resolution or a distance-scaled penalty is the S2.3/S2.5 lever if pick-flips are wanted (owner ruling whether score-shaping evidence suffices for this clause: it is bot stdout evidence per the literal wording). Fuel 25,044 vs S2.0's 24,393 (+2.7%, no S2.2 fuel gate; S2.3's shared DistanceField owns that number). Per-map regressions vs S2.0 for S2.3/S2.5 attention (mechanisms unverified, replay-watch rule applies): 01gold_rush −363 (W→L, factor-insensitive 0.70→0.85), 01starfish −379 (W→L), 00road_of_riches −281, 01fracture −136, 00split −125, 00corners −123, 01elk_arena W→L on the 0-0 gold tiebreak; gains: 01starvation +494, 01broken_curve +386, 00elkring +241 (W), 00collision +226 (W), 00fragment +118 (W), 01concentrated_wealth +91 (W), 01corridors +67 (W). New config tunables: BANK_CONTEST_PENALTY=0.5, REGION_RISK_FACTOR=0.85 (both PLACEHOLDER; join the S2.5 clusters at re-enumeration).
+**Result:** utility 16-24 / 13,392 gems / 0 faults · baseline 13-27 / 9,480 / 0 (both from the Sprint 1 submission tree 3df0bee, isolated worktree). Delta +3 W / +3,912 gems = the utility layer's value on unseen maps. Harness born here (`scripts/run_pool.py`; schema pinned: submittedGems is a STRING — cast at parse).
 
-- [x] **S2.3 — Utility scoring upgrades** (post-sprint review 2026-10-21; owner design session 2026-10-22 adds honest distances, threat-aware paths, graduated boss candidates)
-  - **Honest distances — shared DistanceField replaces Manhattan proxies (owner-approved 2026-10-22).** Manhattan is a Stage 3 build-time fuel-saving proxy (d63cbc8) that lies on broken/sealed maps and biases all picks toward straight-line-nearest. One shared per-turn DistanceField (roots = our position, destinations = camps ∪ altars) feeds `d` for ALL candidates — farm, bank, capture — so `discount^true_distance` prices detours naturally, and unreachable targets score 0 with no special case (boss_battle's sealed altar falls out generically: bank candidate scores 0, not "4 tiles away, huge value"). Native engine BFS (`DistanceField.compute_to`, _cambc.pyi:417) — fuel-cheap, multi-goal; hand-rolled A* rejected (single-destination, Python-fuel-heavy, reimplements the engine for uniform-cost 8-dir movement). Reachability gate's per-turn BFS and this share one field infrastructure — two wall sets mean two field builds over shared code, not one literal computation.
-  - **DistanceField pre-build checklist (owner-approved 2026-10-23).** Before implementing the shared field: (a) PROBE `compute_to` termination — pyi:417 says "until destinations are reached or the search is exhausted"; confirm whether it stops at ALL destinations reached or ANY (a draft-time probe bot printing per-destination distances settles it; far-camp scoring silently breaks if it's ANY); (b) WALLS RULING (CORRECTED 2026-10-23 evening — external review caught the 08:10 version inverting the shipped design and breaking the boss_battle done-when; verified against execution.py:80-120 and the 23:40 log): TWO wall sets, both oscillator-safe because both are position-independent. (i) SCORING field (feeds d for farm/bank/capture): terrain (walls | holes | altars | enemy spawn) PLUS the STATIC overlay of excluded groups' spawn tiles — exactly what execution.py's reachable_tiles_from ships (its docstring: the overlay is deliberately NOT vision-derived; the VISION-DERIVED variant was the 00ambush oscillator's cause; the static overlay is the shipped fix, conservative on enemy clears — over-blocking, never oscillating). With the overlay, boss_battle's Monolith corridors block the altar → unreachable → bank scores 0 by arithmetic → the done-when's 'dead by mechanism' holds. The 08:10 'terrain-only scoring field' variant is REJECTED: it paths THROUGH the Monolith corridors, scores the sealed altar reachable, and resurrects the 93-death courier loop. (ii) BOSS-ENGAGEMENT field: terrain-only, with the boss group's own tiles as DESTINATIONS (compute_to stops at them), never walls — champions fight from the corridor edge; monster proximity prices as path exposure (the threat term), not as walls; (c) per-candidate path exposure reads the shared field / `next_move_from` gradient rather than re-walking paths in Python — fuel budget is part of the design. (d) EMPIRICAL WALL-SET TEST (added 2026-10-23): before building on the chosen wall sets, verify boss_battle's sealed-altar bank candidate scores 0 under the scoring field — the test that settles the overlay question against reality.
-  - **Threat-aware path cost** — expected monster damage along the engine-computed path (awake monsters from fog memory threaten tiles within their range; GameRules camp table gives strength) folded into the discount as path exposure. Boss_battle evidence: 93 courier deaths because the bank path's 200/turn toll was invisible to a score that assumed free walks.
-  - **Boss graduation — Monolith/mega-packs move from gate-excluded to fight-scored (owner ruling 2026-10-22).** Favorable conditions are load-bearing, everything else falls out of honest scoring: (a) time-of-game + stats — gold/HP growth raises P(survive) as rounds pass and the discount curve makes long fights cheap late; (b) multi-agent sustain — tank-soak + ranged DPS + healing rotation change team DPS math (B1 combined-arms term). Sealed maps, enrichment, denied economies are CONCLUSIONS of the scoring, not designed-in scenarios. No scenario detection, no map names — owner directive 2026-10-22 (verbatim): craft policies that produce correct behavior; first improve the current policy, then build on fundamentals; a scenario fix is a smell. Applies to all bot genres, permanently.
-  - **Boss fight candidate** — `(drops + unlock_value) × discount^estimated_turns × P(team survives)`. `unlock_value` = reachability delta: reachability computed with vs. without the group's tiles, scoring what opens up (altars/gem regions behind the door) — boss_battle's Monolith scores astronomical value with zero map-specific code; a corner Monolith guarding nothing scores ~0. **Precompute at draft (fuel ruling 2026-10-23):** the delta is static map topology, not per-turn state — compute once per excluded group during the draft's 10×-fuel window, cache into group_meta; the per-turn double-BFS variant is rejected (documented fuel-wall history). `P(survives)` uses the same team-stat machinery as the fight win-probability below; early-game boss math is still hopeless so behavior stays conservative by arithmetic, not by gate. KILLABLE_HP_CAP stops being a Monolith detector — it becomes a floor on hopeless fights. Spec sync lands WITH the S2.3 commit: architecture.md:131's "no scoring term can resurrect a filtered camp" invariant inverts here (gate → floor); amend it in the same commit, not before — spec matches shipped code.
-  - **Enemy-boss interaction layer (above S2.3 core)** — enemy engaged with the boss shifts the math: (a) distracted boss raises our P(engage) — opportunistic value; (b) enemy tanking 200/turn is a softened target (their effective HP falls); (c) last-hit value on the 300g/200g drop. Wants S2.2 broadcast intel ("enemy AT the boss" beyond our own fog); placement at session time: S2.3-adjacent line item or B1 combined-arms — owner's call.
-  - Real per-camp gem counts in farm scoring — CampType→gems table from the GameRules monster table; per-group expected gems precomputed into group_meta (observation manager's first-turn map cache). Restores the spec's `gems(c) × discount^turns`; today every farm candidate uses flat 60/30, so farm picks nearest-first, same as baseline
-  - Principled banking — carried-gem risk term (bank score × P(survive)); activates DEATH_RISK_BASE (unused since Sprint 1); threat inputs start local (visible enemies + own fog memory), enriched by S2.2 broadcasts
-  - Region risk estimation — arch: "crude constant per region for Sprint 1, estimated later"; enemy-sighting data (6d682a2) makes estimation possible
-  - Fight win-probability + flee candidate — replaces "attack anything in range when HP ≥ 35%"
-  - Fight score counts the bag — `(KILL_REWARD_GOLD + enemy.gem_count()) × discount^turns_to_kill`. GameRules: the killer receives ALL carried gems + 50 base gold ("stealing gems from enemies" is a named objective); today utility.py scores every kill at a flat 50. API: gem_count() on champion views (BotAPIPython.md §gem_count), enemy views via vision.champions(ENEMY)
-  - Recall utility — fold Gate 3 (bot.py) into the argmax: `(heal_value + gold_to_spend_value) × discount^d_spawn × P(channel survives)`, P dropping with enemy presence in interrupt range (recall is damage-interrupted and channeling roots you — GameRules :272, :116); weak + enemy in attack range → move-away-then-recall, never channel inside attack range; completes the exponential discount curve across all candidate types; removes the safety_override path (LIVE today — bot.py:184 calls it; it goes dead once recall enters the argmax). Spec fidelity: "recall's score spikes when HP low **or gold high**" — the gold trigger is unimplemented today
-  - Nearest reward-available camp (currently first-found; subsumed by honest-distance scoring — nearest-by-field, not first-found-by-scan)
-  - Guardrail: shopping/combat stay rules inside the utility function — no manager promotion during S2.3 (architecture.md §Manager architecture)
-  - Done when: **PASS 2026-10-24** — both instruments clear every gate: orchestrator 19-21 / 16,219 gems / fuel 17,782, worker 20-20 / 16,169 / 18,813, 0 botFaults both sides (vs S2.2 record 18-22 / 14,004 / 25,230); Manhattan grep-clean; boss_battle zero courier deaths at the sealed door — scored unreachable by the two-wall-set design (records/s23-verify/boss_battle.md); elk_arena 72 gems banked (center economy unlocked by boss graduation). Evidence: records/s23-verify/ (both campaigns). SUBMITTED to the platform as bot version 2 (cambc submit at main 1420e7a, 2026-10-24). **Regression watch list (added 2026-10-24, external review; owner replay-watch rule applies before any S2.4/S2.5 tuning around symptoms):** 01yellow_brick_road URGENT — 0 gems / 1 camp / 4,837 fuelExhausted (was 229 gems S2.2, fuel ≤3,496 all prior stages); IDENTICAL on both instruments same-host (deterministic — real behavior, not seed noise); zero-output + max-fuel = oscillator-class fingerprint: the new fielding presses a door on a previously-good map all match. Also down hard (mechanisms UNVERIFIED, cross-host noise possible): 01corridors 60 (was 342) · 00fragment 124 (was 444) · 00eight 281 (was 661) · 00road_of_riches 119 · 00interlock 290 · 01starvation 752 (was 1,006).
-  - **S2.3.2 PASS 2026-10-26 — 01yellow_brick_road unblocked** (gated campaign `s23-ybr-fix`, CLI 3.0.4 / engine 1.0.2, `--release`, vs starter-python, `scripts/run_pool.py`, concurrency 4): **25-15 / 18,159 gems / fuelExhausted 3,911 / 0 botFaults** (vs the S2.3 record 19-21 / 16,219 / 17,782). `01yellow_brick_road`: **259 gems submitted / 32 camps cleared / 1,157 fuelExhausted — a WIN** (S2.3: 0 gems / 1 camp / 4,837 fuel, loss) — the watch-list URGENT item is closed. Change set, all of it in `managers/` + `config.py` with `bot.py` byte-identical to HEAD and `bot_baseline.py` untouched: (1) `GOLD_TO_GEM` 0.05 → 0.02 (50 gold per gem) — gold is the SECOND tiebreak with a rate-limited sink (the shard shop needs a champion on a spawn tile) while a gem is the win condition and the FIRST tiebreak; at 0.05 a 600-gold / 30-camp **zero-gem** row was priced at 30 gem-equivalents, more than every real gem cluster on that map (26-45 gems, survival-discounted to 1.1-5.9), so the argmax walked 29 tiles of zero gems; (2) the farm goal is a **LIVE** camp of the group (`Snapshot.group_live_tiles` — a dead camp is never reported by `vision.camps()`, and `camp.spawn_position()` is a free attribute, so the per-turn goal costs no engine read), replacing the static first-camp anchor that became a **dead tile** and pinned the champion on (5,17) from round 19 to 2000; (3) the group's Chebyshev **span** is charged to the clear time (`farm_rows[11]`) — a 30-camp row over 29 tiles was priced like a 4-camp cluster; (4) the goal-tile tie-break is deterministic (coordinates, not `id(tile)`, which is a memory address); (5) the path-exposure fuel guard is removed (it made the risk term, and therefore the argmax, depend on the turn's remaining fuel). No map-name-specific behaviour: no `if map == ...`, no per-map constant. Controls PASS: `01elk_arena` 72 gems (W) · `01boss_battle` 0 `gemSubmission` entries, 0 deaths by door camps 20/27, 0 deaths on the door tiles (23,20)/(24,20) · `00collision` 259 L (HEAD 263 L) · `00stampede` 0-0 **W** (gold tiebreak intact) · 0 botFaults on both sides of all 40 maps. Evidence: `records/s23-ybr-fix/` — root cause and before/after in `ybr.md`, per-map comparison against the HEAD control and both recorded S2.3 campaigns in `comparison.md`, the measured per-map noise floor in `layout-noise.md`, campaign tables in `table.md` + `aggregate.json`.
+**Key facts:** 9 maps with BOTH sides at 0 gems (sealed/broken economies); 01shortcut + 01elk_arena are 0-0 WINS on the gold tiebreak (GameRules :31-33 — gold EARNED; camp clears pay gold); 01islands near-total shutdown (1 camp / 2000 rounds). Per-map regressions vs baseline recorded in the S2.0 entry below and adjudicated through the 10-26 cycle.
 
-- [ ] **S2.4 — Scouting & shopping, utility-driven** (owner design 2026-10-21; GameRules §Vision & wards, §Shards and emblems, §Consumables)
-  - Ward mini-argmax — free parallel action on its own trinket charge, NOT the move/attack allowance (GameRules :116; verify no interaction on first run): each round argmax the placeable tiles (within 2 of the champion) by information gain = unseen camp spawn tiles + objective-path tiles + enemy-side altar tiles covered by range-6 vision; ties leave the ward in place. Feeds observation (visible_camp_groups), intelligence fog memory, and S2.2 broadcasts — GameRules :353: "if you spot something of note, you can use the shared memory to try to communicate". API: me.place_ward (BotAPIPython.md:4084), vision.ward_tiles (:7437)
-  - Shopping utility — per-champion emblem-family map in config (MONSTER/JUNGLE/TREASURE/DURABILITY/HOME/POWER; the existing stat-priority picks the variant; only the completed emblem grants the passive — GameRules :290-294); shop-turn candidates: family shard (30g) vs altar lock (10g) vs hold, scored by marginal emblem progress vs denial value; gold held earns nothing, so hold only wins against the consumable reserve. Shop in BOTH legal states — on spawn or dead (Gate 1 currently skips the 60-round death window; GameRules :361 dead champions retain shopping turns). Dead-code fix: remove `execution.shop_on_spawn` (never called); `bot.buy_items` delegates the stat→item mapping to `config.power_shard_for` (one buyer, one mapping)
-  - Altar-lock use — place within 2 tiles of an altar with enemy tribute traffic (intel fog-memory prior; accept some wasted 10g placements as tuition until S2.2 sharpens the prior); removal costs the enemy 3 attacks of tempo; pairs with S2.1's altar-contested flag. **Self-block fix (owner-approved 2026-10-23):** `has_altar_lock` is TEAM-AGNOSTIC (BotAPIPython :7243 "either team") — once we place defensive locks, the current call sites (utility.py:94, execution.py:395, :410) would score our own altars as locked and our bankers would refuse them, while the engine itself allows owner-team tributes (GameRules :237). Fix: scoring checks ENEMY locks only, via `cambc.vision.enemy_altar_lock_occupancy()` bitboards (`ally_altar_lock_occupancy` also exists, pyi:667-668) — our own locks are passable; no bot-memory tracking needed (SDK exposes ownership). The old "our bank already skips locked altars so defense stands" claim was half-true: defense stood, but our offense on that altar silently died too. API: buy/can_buy accept ConsumableType (:3581/:3616), use (:4869); carry max one of each — assert in code
-  - Done when: 40-map A/B — per-map record AND aggregate submitted gems ≥ the immediately-prior verified record (stage ratchet 2026-10-23); 0 botFaults both sides; fuelExhausted events per side ≤ the prior-stage reference; `cambc build --release` passes.
+**Evidence:** records/s20-rebaseline/{utility,baseline}/ (table.md, aggregate.json, fuel.json).
 
-- [ ] **S2.5 — PLACEHOLDER tuning campaign** (13 values today; data tunes the data)
-  - Sweep harness — extend the Stage 3 A/B harness to materialize config-variant trees (git-archive per variant, the Stage 3 verification method), run the patched 40-map pool per variant, parse stats.json, emit per-map + aggregate tables. Cost note: 40-map variants are ~2.4x the old pool per variant; if wall-clock bites, screen on a fixed 10-map subset and confirm winners on the full 40
-  - Method — coordinate descent per cluster: sweep one value at a time holding the rest, emit the response curve (aggregate gems vs value), pick the peak, one iteration per cluster. Bounds it to ~40-60 variants (~1.6-2.4K engine matches on the 40-map pool) vs a naive grid
-  - Clusters (as of 2026-10-22; SEE RE-ENUMERATION BULLET — do not sweep from this list): banking (BANK_THRESHOLD, BANK_UTILITY_PER_GEM, RECALL_UTILITY) · farm (TIME_DISCOUNT, KILLABLE_HP_CAP, FARM_VISIBLE_CAP, FARM_ZONE_CAP, FARM_VISIBLE_GEM_ESTIMATE, FARM_ZONE_GEM_ESTIMATE) · safety (DEATH_RISK_BASE, SAFETY_HP_FRAC) · intel (ENEMY_TRACK_TTL, SIGNAL_ALTAR_CONTEST_RADIUS — added 2026-10-23: config.py has 13 PLACEHOLDER values, the original list covered 12)
-  - **Re-enumeration pass (owner-approved 2026-10-23) — runs AFTER S2.3/S2.4 land, BEFORE the sweep.** S2.3 deletes FARM_VISIBLE_GEM_ESTIMATE + FARM_ZONE_GEM_ESTIMATE (real per-group gems replace them) and adds new tunables (threat-path exposure weight, P(survive) knobs); S2.4 adds ward/shop weights. Re-enumerate clusters from the live config.py at sweep time; every new tunable joins a cluster or gets one. Screening note: per-cluster subsets may exclude irrelevant maps (banking sweeps learn nothing from the 9 zero-economy maps) — confirm subset winners on the full 40.
-  - Traceability: TIME_DISCOUNT is the base of the exponential discount curve (`TIME_DISCOUNT ** turns` in every score); its sweep tunes curve steepness (0.7 ≈ near-sighted, 0.95 ≈ far-sighted)
-  - Done when: zero PLACEHOLDER tags remain in config.py (each replaced with a tuned-value source citation; target list re-enumerated from the live config after S2.3/S2.4 — see the re-enumeration bullet); 40-map A/B ≥ the S2.4 record (stage ratchet); 0 botFaults both sides; fuelExhausted per side ≤ the S2.4 reference.
+---
 
-## FINAL SPRINT PLAN (proposed 2026-10-26 — AWAITING OWNER AUDIT; not started)
+### [x] S2.1 — Beacon protocol on the 8-byte shared channel · PASS 2026-10-21
 
-Standing facts: this is the LAST sprint (locks Sun 1 Nov 23:59 UK). Ladder is live now — every series
-earns/loses rating; the sprint lock exists to climb, not to park. First series played: 1-4 vs CompleX
-(version 2 on the platform), kills 84-1 against us, 258 gems stolen via champion kills, gold-tiebreak
-loss 13,553-4,023 on 00contest. Version 3 (S2.3.2 + YBR fix) submitted today. Owner ruling 2026-10-26:
-dominance IS economy (kills = respawn denial 3% of game + capture-reset removal + gold snowball + tiebreak).
+**Design:** byte i (owner: champion i, ally draft order) = bits 0-3 region id (4×4 grid) · bit 4 altar-contested · bits 5-7 freshness (~8-round buckets, ~55-round horizon ≈ ENEMY_TRACK_TTL). Write-only-your-byte, read-all. Champion kind dropped by quantization (accepted). Dead writer's byte freezes until respawn (known limitation).
 
-Proposed execution order (rationale: ladder-bleeding gap first; shopping feeds fighting; tuning always last):
+**Fixed en route:** ChampionType vs ChampionDraft enum divergence silently gave 3 of 5 champions no channel index since Stage 2 — shared `observation.draft_id_for()` now feeds `_channel_index` + `_zone_id_for_me`. draft.py byte 2 written spec-true ((1<<n)-1). All-champion round stamp REMOVED (no consumer, violated ownership; frozen baseline keeps its own).
 
-- [ ] **F1. Dominance economics** (B1 pulled forward — the 84-1 fix; series data is the evidence brief, matches/sprint2-series/complex/)
-  Fight-back: a champion under champion attack must weigh fight/flee — never farm-through-death (the
-  measured bug: 84 deaths while the argmax kept picking farm). Fight score must include the bag
-  (KILL_REWARD_GOLD + enemy.gem_count() — verify whether the S2.3 bag-scoring actually shipped).
-  Courier-hunt: chase candidates within path distance, (bag + 50g) x discount^chase x P(win); a loaded
-  courier outvalues most camps; ~3 chase candidates max (fuel). Gold-tiebreak maps: Monolith-gold farming
-  + kill-gold count on gem-dead maps (contest lost exactly this way).
-  Gates: pool-70 campaign >= 39-31 / 31,036 / fuel <= 5,922 / 0 faults (records/p4-pool70 reference);
-  local elkring/gemfight A/B: our champion kills double digits per contested map WITHOUT gems tanking;
-  YBR >= 100 gems, elk 72, boss_battle 0 courier deaths hold. Submit as v4 on PASS.
-- [ ] **F2. S2.4 Scouting & shopping** (board design complete — 3 bullets, audited by owner + external review)
-  Shopping FIRST inside the stage (shards = permanent stats = the snowball that feeds dominance; also
-  the 60-round dead-window shopping gap). Wards second (free parallel action, information feeds chase +
-  bank-safety). Altar locks last (enemy-locks-only design already ruled).
-  Gates: same campaign ratchet vs F1's verified record + fuel guard + baseline byte-identity. Submit as v5.
-- [ ] **F3. New-map class fixes** (ladder exposure: the pool-70 audit flags — adgato_* 1-4 class,
-  02stalactites fuel 959, 00the_line/00vault/02gift_wrapping inert class). Diagnosis before prescription
-  (replay-watch rule); each fix is a policy, not a map patch. Gates: ratchet. Submit as v6 if time allows.
-- [ ] **F4. S2.5 tuning campaign** (always last; script-driven = token-light; re-enumerate clusters AFTER
-  F1-F3 land since they add tunables: chase weights, P(win) knobs, shop weights. Screening subsets allowed,
-  winners confirmed on full 70). Gates: zero PLACEHOLDERs remain; ratchet vs F3/F2 record.
-- [ ] **F5 (continuous). Ladder watch** (armed): every series downloaded on completion; kill differential
-  tracked per submission — the 84-1 number is the baseline to beat; each version's real-ladder effect
-  measured, feeding the next fix's evidence brief.
+**Verified:** 40/40 maps, signals written+read, 0/0 botFaults, `build --release` OK (CLI 3.0.4 / engine 1.0.2, owner's call). New engine champion resolves via the shim.
 
-Time budget across the week (owner cost discipline): one worker run at a time, capped hours, commit
-discipline, gates-pass = stop. Estimated worker-hours: F1 ~4h (evidence-rich), F2 ~3h, F3 ~2h, F4 compute
-+ ~1h model. Verification campaigns ~10 min each on my side. Submissions owner-gated.
+---
+
+### [x] S2.2 — Intel consumers (scope pinned 2026-10-23) · PASS 2026-10-23 19:38
+
+**Scope pin (owner, after external-review seam catch):** minimal pre-S2.3 consumers ONLY — (a) contested-altar flag scores bank down by BANK_CONTEST_PENALTY=0.5 (score-down, not skip); (b) REGION_RISK_FACTOR^count multiplies bank+farm. P(survive)/fight-flee stay in S2.3.
+
+**Result:** 17-23 / 13,916 / 0 faults vs S2.0 16-24 / 13,392 → ratchet PASS (+1 W, +524 gems); camps +515, deaths −267. Tuning curve: 0.70 → 14-26 FAIL (bot fled enemy-trafficked GEM economies for safe GOLD clusters — 01gold_rush +110 camps, 33 gems, ~11.7k gold hoardless); 0.85 → PASS.
+
+**Known structural limitation (logged, not patched):** 0 altar-pick flips — close altar pairs share a 4×4 beacon region so region flags are all-or-nothing. Sub-region resolution or distance-scaled penalty = later lever. Evidence clause satisfied by 162 `s22:` stdout lines across 14 maps.
+
+**Evidence:** records/s22-intel/ (+ verify/ for the orchestrator campaign 18-22 / 14,004). Per-map regressions vs S2.0 logged for S2.3/S2.5 attention.
+
+---
+
+### [x] S2.3 — Utility scoring upgrades · PASS 2026-10-24 (both instruments)
+
+**Design (owner sessions 10-21/22, corrected 10-23):**
+- **Honest distances** — one shared per-turn DistanceField replaces Manhattan proxies; unreachable scores 0 by arithmetic. TWO wall sets (corrected ruling): scoring field = terrain + STATIC excluded-group overlay (sealed doors score unreachable; boss_battle bank candidate scores 0); boss-engagement field = terrain-only with boss tiles as DESTINATIONS.
+- **Threat-aware path cost** — expected monster damage folded in as path exposure (boss_battle evidence: 93 courier deaths on a 200/turn corridor invisible to free-walk scoring).
+- **Boss graduation** — Monolith/mega-packs become SCORED fight candidates: (drops + unlock_value) × discount^turns × P(survive); unlock_value = draft-precomputed reachability delta (one-door-at-a-time floods, spawn-rooted). KILLABLE_HP_CAP demoted from gate to floor on hopeless fights. No map names, no scenario detection.
+- **Fight scores the bag** — (50g + enemy carried gems) × discount^turns × P(win); flee candidate replaces the attack reflex; recall folds into the argmax (heal + gold-to-spend, × P(channel survives)); real per-group gem values + clear times replace flat estimates.
+
+**Result:** orchestrator 19-21 / 16,219 / fuel 17,782 · worker 20-20 / 16,169 / fuel 18,813 · 0/0 faults. Gates clear on both instruments. elk_arena banked its first-ever 72 gems (contested center unlocked by graduation). boss_battle: 0 tributes attempted, 0 courier deaths at the sealed door — the 93-death loop dead by mechanism (records/s23-verify/boss_battle.md). Submitted as platform v2.
+
+**Regression watch list (added 2026-10-24, external review):** 01yellow_brick_road URGENT (0 gems / 1 camp / 4,837 fuel — oscillator-class fingerprint, identical on both instruments) → **closed by S2.3.2 below.** Others down hard, mechanisms then unverified: corridors, fragment, eight, road_of_riches, interlock, starvation.
+
+**Evidence:** records/s23-verify/ (both campaigns + praxis-verify/).
+
+---
+
+### [x] S2.3.2 — 01yellow_brick_road hotfix · PASS 2026-10-26 11:40
+
+**Root cause (three measured parts, all general — no map-specific code):**
+1. GOLD_TO_GEM 0.05 priced a 600-gold/30-camp ZERO-gem row above every real gem cluster → argmax walked 29 tiles of nothing. Gold is the 2nd tiebreak with a rate-limited sink; gems are the win condition → 0.02.
+2. Farm goal was a STATIC first-camp anchor → a dead tile once that camp died; champion pinned on (5,17) rounds 19-2000 → goal is now a LIVE camp (group_live_tiles, no engine read).
+3. Clear time ignored the group's Chebyshev SPAN → 30-camp rows priced like 4-camp clusters.
+
+Plus hygiene: goal-tile ties by coordinates not `id(tile)` (memory address); path-exposure fuel guard removed (argmax depended on remaining fuel).
+
+**Result:** 25-15 / 18,159 gems / fuel 3,911 / 0 faults — clears every ratchet gate vs S2.3. YBR itself: 259 gems / 32 camps / fuel 1,157 / WIN (was 0/1/4,837, loss). Controls hold: elk 72 W, boss_battle 0/0 sealed, collision/stampede sane.
+
+**Load-bearing measurement note:** compiled module memory layout depends on exact source bytes — an `id()`-based tie-break made a cosmetic comment in a never-executed file swing five per-map results >100 gems. Only SAME-BYTES comparisons are meaningful (same bytes ⇒ bit-identical, 4/4 repeats). Per-map 100-gem tolerance sits INSIDE the noise floor.
+
+**Evidence:** records/s23-ybr-fix/ (ybr.md, comparison.md, layout-noise.md, head-control/).
+
+---
+
+### [ ] S2.4 — Scouting & shopping, utility-driven · CODE COMPLETE, GATES NOT RUN
+
+**State (2026-10-26):** all three design bullets implemented in three checkpoint commits — shopping 79f5bfc, wards 40fd1c2, locks 6c72e27. NO gated A/B campaign has been run, so the done-when gates below are UNMET. Do not check off until they pass.
+
+- **Ward mini-argmax** — free parallel action on its own trinket charge (GameRules :116). Information gain over the placement box (unseen camp tiles + objective-path tiles + enemy altars, range-6 vision), churn guard (ties leave the ward in place), fuel-tuned to 5 candidate cells × ≤5 interest tiles after the 25-cell version cost ~1.4M fuel on a placement turn. `managers/scouting.py`.
+- **Shopping utility** — scored in the argmax: family shard (per-champion CHAMPION_EMBLEM_FAMILY; only the completed emblem grants the passive, GameRules :290-294) vs altar lock vs hold, with the consumable reserve priced in. Shops in BOTH legal states (spawn + the 60-round dead window, GameRules :361 — previously wasted). Dead-code fix done: `shop_on_spawn` removed; `bot.buy_items` delegates to `config.power_shard_for` (one buyer, one mapping).
+- **Altar locks** — enemy-locks-only design as ruled (enemy_altar_lock_occupancy; `has_altar_lock` is team-agnostic, GameRules :7243/"either team" — while the engine lets the owner team tribute through its own lock, GameRules :237 — so our own locks never block our bankers). Traffic prior: DIRECT (contested beacon/own vision) > REGION (fresh sighting) > FOG (last-known positions). Bought only when gold covers lock + reserve and intel shows traffic; carry-limit asserted. Placed as a free action within 2 tiles.
+
+**Done when (verification rule 2026-10-26):** ONE gated campaign before submission — single instrument, top-line gates: record AND aggregate gems ≥ the immediately-prior verified record (owner to rule the reference: Patch-4 pool-70 audit 39-31 / 31,036 / fuel 5,922 on engine 2.0.0, or a fresh same-instrument 40-map run); 0 botFaults both sides; fuelExhausted ≤ reference; `cambc build --release` passes on the current engine line. Evidence items (wardPlacement > 0, `s24:` stdout, lock placements without self-block) fall out of the campaign run — no separate writeups.
+
+**Verification checklist (folds into the pre-submit campaign):**
+- [ ] `cambc build --release` on the current engine line (chunks predate Patch-4).
+- [ ] One gated campaign vs the ratchet reference (owner rules the reference — see Done when).
+- [ ] Ward evidence: wardPlacement events > 0 (was 0 everywhere — the whole point).
+- [ ] Shop evidence: `s24: shop` stdout lines in --release mode; dead-window purchases happen.
+- [ ] Lock evidence: `s24: lock` placements on traffic altars only; NO self-block (gemSubmission counts vs the S2.3.2 control stay sane).
+- [ ] Fuel: total fuelExhausted ≤ reference (ward v1 cost 1,491 events on 00gem_fields — confirm the tuned version is clean).
+
+---
+
+### [ ] S2.5 — PLACEHOLDER tuning campaign (always last; final plan renumbers to F4)
+
+**Method:** sweep harness materializes config-variant trees (git-archive per variant), coordinate descent per cluster (one value at a time, response curve, pick the peak). Screening subsets allowed; confirm winners on the full pool.
+
+**Re-enumeration (owner-approved 2026-10-23):** clusters are re-enumerated from LIVE config.py after S2.3/S2.4 land — S2.3 deleted FARM_*_GEM_ESTIMATE (real per-group gems), added threat/P(survive)/field knobs; S2.4 added ward/shop/lock weights; the final plan adds chase/P(win) knobs. The 2026-10-22 cluster list is dead — do not sweep from it.
+
+**Done when:** zero PLACEHOLDER tags remain in config.py (each replaced with a tuned-value source citation); ratchet vs the prior verified record; 0 botFaults; fuel ≤ reference.
+
+---
+
+## Final Sprint Plan (proposed 2026-10-26 — AWAITING OWNER AUDIT; not started)
+
+**Standing facts:** this is the LAST sprint — locks Sun 1 Nov 23:59 UK. Ladder live now; the sprint exists to climb, not park. First series: 1-4 vs CompleX (our v2 on platform) — 84-1 kills against us, 258 gems stolen, gold-tiebreak loss 13,553-4,023 on 00contest. v3 (S2.3.2 + YBR fix) submitted 2026-10-26. Owner ruling 2026-10-26: dominance IS economy (kills = respawn denial 3% of game + capture-reset removal + gold snowball + tiebreak).
+
+**Order rationale:** ladder-bleeding gap first → shopping feeds fighting → tuning always last.
+
+- [ ] **F1. Dominance economics** (B1 pulled forward — the 84-1 fix; evidence brief: matches/sprint2-series/complex/)
+  - Fight-back: a champion under attack must weigh fight/flee — never farm-through-death (the measured bug: 84 deaths while argmax kept picking farm). Fight score must include the bag (verify S2.3 bag-scoring actually ships).
+  - Courier-hunt: chase candidates within path distance, (bag + 50g) × discount^chase × P(win); a loaded courier outvalues most camps; ~3 chase candidates max (fuel discipline).
+  - Gold-tiebreak maps: Monolith-gold farming + kill-gold on gem-dead maps (the CompleX loss was exactly this).
+  - Gates: pool-70 ≥ 39-31 / 31,036 / fuel ≤ 5,922 / 0 faults (records/p4-pool70 reference); local elkring/gemfight A/B: kills double digits per contested map WITHOUT gems tanking; YBR ≥ 100, elk 72, boss_battle 0 courier deaths hold. Submit as v4.
+- [ ] **F2. S2.4 scouting & shopping** (design complete + audited; execution order: shopping first — shards snowball into dominance; wards second; locks last). Gates: ratchet vs F1's verified record + fuel guard + baseline byte-identity. Submit as v5.
+- [ ] **F3. New-map class fixes** (pool-70 audit flags: adgato_* 1-4 class, 02stalactites fuel 959, 00the_line/00vault/02gift_wrapping inert class). Replay-watch before prescribing; each fix is a policy, not a map patch. Gates: ratchet. Submit as v6 if time allows.
+- [ ] **F4. Tuning campaign** (= S2.5; renumbered clusters AFTER F1-F3 since they add tunables: chase weights, P(win) knobs, shop weights). Gates: zero PLACEHOLDERs; ratchet vs F3/F2 record.
+- [ ] **F5 (continuous). Ladder watch** — every series downloaded on completion; kill differential tracked per submission (84-1 is the baseline to beat); each version's ladder effect feeds the next evidence brief.
+
+**Time budget:** one worker run at a time, capped hours, commit discipline, gates-pass = stop. Estimates: F1 ~4h, F2 ~3h, F3 ~2h, F4 compute + ~1h. Verification campaigns ~10 min each. Submissions owner-gated.
+
+---
 
 ## Backlog (unscheduled — dependency-ordered)
 
-Dependency note: B1 waits on S2 signaling proving measurable value; B2's linked-instance kits want the channel live first; B3 is blocked by the Telemetry v2 schema open question below.
+- [ ] **B1. Coordination — Sprint 3+** (mostly superseded by F1's pull-forward; the combined-arms focus-fire, Willow sustain, negotiation-protocol, and respawn-aware schedule items remain here): focus-fire scoring ("my utility is higher because Ryth is adjacent") · Willow healing/sustain · negotiation on the shared channel (only if signals prove value) · respawn-aware camp schedules.
+- [ ] **B2. Champion pool expansion:** Prism (carried-gems personal-utility term; NOTE Patch-4 buffed Prism 0.2→1.5 focus/gem) · Cassi & Issac (linked instances, coordination-shaped).
+- [ ] **B3. Telemetry & docs:** Telemetry v2 (PIG_Bot viewer ingest — blocks on open question below) · repo README · spec sync, extended scope: engine pin (architecture still says 2.2.4; platform is now 4.0.0/2.0.0 post-Patch-4) · stale config listing · file structure missing managers/intelligence.py (and now fielding.py, topology.py, scouting.py) · Obsidian vault mirror sync.
+- [ ] **B4. Items follow-up:** teleport crystal use-utility (3-tile terrain-ignoring teleport vs 3-turn channel exposure, GameRules :315); needs destination policy. 01islands (30/36 gem groups TP-gated) is the evidence.
 
-- [ ] **B1. Coordination — Sprint 3+** (architecture.md §Coordination roadmap): negotiation protocol on the shared channel (only if S2 signals show measurable value) · combined-arms focus-fire scoring ("my utility is higher because Ryth is adjacent") · Willow healing/sustain (enters when combined-arms scoring does) · respawn-aware camp schedules · **Enemy-dominance economics — the missing compounding terms (owner-reframed 2026-10-26: "structure the economy first" — dominance IS economy, not aggression bolted on)**: the fight value model is missing the compounding half of the game economy. Per-exchange pricing (kill = 50g + bag vs camp drops) is the wrong frame; the full model: (a) IMMEDIATE: bag + 50g, gold-scaled (Vesper +33% post-patch); (b) DENIAL: a dead enemy cannot farm/capture/tribute for the 60-round respawn (3% of the whole game) — their expected farm rate x absence window x discount; (c) CONTESTED-ACCESS: enemy presence resets our capture progress (GameRules capture: "admitting an enemy resets it") and occupied spawn tiles delay entire group respawns — enemy removal near our objectives has direct farm value; (d) SNOWBALL: our gold compounds into permanent shard stats while the dead enemy's idles (dead champions shop but don't earn); (e) kill tiebreak after gems/gold. Patch-4 amplified every one of these knobs (Prism 0.2->1.5 focus/gem, Vesper 20->33%, Marcella tribute gold). Implementation shape unchanged: extend fight candidates from "enemy in attack range" to chase-worthy enemies within path distance (loaded couriers, low-HP straggliers, tribute-channelers), scored with the shared DistanceField + P(survive) + the terms above; adgato_* contested-gem-economy class (1-4) is the proving ground. Needs fight-vs-farm candidate cap discipline (S2.3 fuel history: candidate floods burn budgets).
-- [ ] **B2. Champion pool expansion** (architecture.md §Champion strategy notes): Prism (carried-gems personal-utility term) · Cassi & Issac (two linked instances, coordination-shaped; natural after S2 signaling)
-- [ ] **B3. Telemetry & docs**: Telemetry v2 — per-round log → PIG_Bot viewer extension (architecture.md tagged it Sprint 2; owner rescheduled 2026-10-21) · repo README · spec sync: architecture.md "17 maps in maps/" → patched 40-map pool (stale since the 2026-10-21 platform patch); extended scope (external review 2026-10-22, all verified): architecture.md engine pin 2.2.4 (cannot run ~19/40 patched maps — effective platform line is CLI 3.0.4 / engine 1.0.2; pin move is the owner's call) · stale config.py listing (shows 1.0/50.0 era values; live values are BANK_UTILITY_PER_GEM=100.0, RECALL_UTILITY=200.0, KILL_REWARD_GOLD=50) · file structure omits managers/intelligence.py · telemetry-v2 Sprint-2 tag (board rescheduled it to B3) · run_pool.py docstring already fixed (81dbbbe) · owner-side: sync the Obsidian vault mirror with architecture.md changes
-- [ ] **B4. Items follow-up**: teleport crystal — use-utility (3-tile terrain-ignoring teleport vs 3-turn channel exposure, GameRules :315); needs destination policy; deferred from S2.4 (scope call 2026-10-21)
+## Open questions
 
-## Open questions (from architecture.md; status)
+- OPEN — Telemetry v2 schema: how the PIG_Bot viewer ingests this game's stats (blocks B3).
+- OPEN — when does the utility layer earn combined-arms scoring (blocks the remaining B1 items).
+- RESOLVED — stats.json field names (probed Stage 2; schema re-verified on engine 2.0.0 by the Patch-4 audit — extract() unchanged).
 
-- ✓ RESOLVED — exact stats.json field names: probed Stage 2, restated criteria in architecture.md §Stage 2
-- OPEN — Telemetry v2 schema: how the PIG_Bot viewer ingests this game's stats (blocks B3)
-- OPEN — when does the utility layer earn combined-arms scoring (blocks B1)
+---
 
 ## Overnight log (append-only; orchestrator and workers write here)
 
