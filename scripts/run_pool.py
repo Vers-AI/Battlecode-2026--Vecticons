@@ -94,6 +94,20 @@ def extract(stats, side):
     fuel = sum(len(e.get("entries", [])) for e in events
                if e.get("kind") == "fuelExhausted"
                and e.get("owner", {}).get("team") == side)
+    # S2.4 evidence counters: the ward placements, the shard purchases,
+    # the consumable purchases and the emblem combinations. These are the
+    # "did the new behaviour actually happen" counters of the S2.4 gates
+    # (wardPlacement > 0 on the contested maps, buyItem total > the
+    # reference).
+    def _count(kind):
+        return sum(len(e.get("entries", [])) for e in events
+                   if e.get("kind") == kind
+                   and e.get("owner", {}).get("team") == side)
+
+    wards = _count("wardPlacement")
+    buys = _count("buyItem")
+    consumables = _count("buyConsumable")
+    combos = _count("itemCombination")
     match = stats.get("match", {})
     diag = stats.get("diagnostics", {}).get("botFaults", {})
     return {
@@ -102,6 +116,10 @@ def extract(stats, side):
         "camps_cleared": camps,
         "deaths": deaths,
         "fuel_exhausted": fuel,
+        "wards_placed": wards,
+        "items_bought": buys,
+        "consumables_bought": consumables,
+        "emblems_made": combos,
         "bot_faults": int(diag.get(side, 0) or 0),
         "rounds": match.get("roundsCompleted"),
         "engine_version": match.get("engineVersion"),
@@ -124,6 +142,9 @@ def aggregate(results, label, our_side="teamA"):
                      "gems": a["gems"], "opp_gems": b["gems"],
                      "camps": a["camps_cleared"], "deaths": a["deaths"],
                      "fuel_exhausted": a["fuel_exhausted"],
+                     "wards": a["wards_placed"], "buys": a["items_bought"],
+                     "consumables": a["consumables_bought"],
+                     "emblems": a["emblems_made"],
                      "bot_faults": a["bot_faults"], "rounds": a["rounds"],
                      "seconds": r["seconds"]})
     n_ok = sum(1 for r in rows if r.get("status") == "ok")
@@ -131,6 +152,16 @@ def aggregate(results, label, our_side="teamA"):
             "losses": n_ok - wins, "total_gems": total_gems,
             "total_fuel_exhausted": sum(r.get("fuel_exhausted", 0) for r in rows
                                         if r.get("status") == "ok"),
+            "total_wards": sum(r.get("wards", 0) for r in rows
+                                if r.get("status") == "ok"),
+            "total_buys": sum(r.get("buys", 0) for r in rows
+                               if r.get("status") == "ok"),
+            "total_consumables": sum(r.get("consumables", 0) for r in rows
+                                      if r.get("status") == "ok"),
+            "total_emblems": sum(r.get("emblems", 0) for r in rows
+                                  if r.get("status") == "ok"),
+            "maps_with_wards": sum(1 for r in rows
+                                    if r.get("status") == "ok" and r.get("wards", 0) > 0),
             "bot_faults": faults, "rows": rows}
 
 
@@ -175,18 +206,26 @@ def main():
              f"**Record: {agg['wins']}-{agg['losses']}** | total gems "
              f"tributed: {agg['total_gems']} | botFaults: {agg['bot_faults']} | "
              f"{agg['elapsed_minutes']} min", "",
-             "| map | W/L | gems | opp | camps | deaths | fuel | faults | rounds | sec |",
-             "|---|---|---|---|---|---|---|---|---|---|"]
+             f"wards placed: {agg.get('total_wards', 0)} "
+             f"(on {agg.get('maps_with_wards', 0)} maps) | items bought: "
+             f"{agg.get('total_buys', 0)} | consumables bought: "
+             f"{agg.get('total_consumables', 0)} | emblems: "
+             f"{agg.get('total_emblems', 0)}", "",
+             "| map | W/L | gems | opp | camps | deaths | fuel | wards | buys | consum | faults | rounds | sec |",
+             "|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
     for r in agg["rows"]:
         if r.get("status") != "ok":
-            lines.append(f"| {r['map']} | - | - | - | - | - | - | - | - | {r['status']} |")
+            lines.append(f"| {r['map']} | - | - | - | - | - | - | - | - | - | - | - | {r['status']} |")
         else:
             lines.append(f"| {r['map']} | {'W' if r['win'] else 'L'} | {r['gems']} | "
                          f"{r['opp_gems']} | {r['camps']} | {r['deaths']} | {r.get('fuel_exhausted', 0)} | "
+                         f"{r.get('wards', 0)} | {r.get('buys', 0)} | {r.get('consumables', 0)} | "
                          f"{r['bot_faults']} | {r['rounds']} | {r['seconds']} |")
     (out_dir / "table.md").write_text("\n".join(lines) + "\n")
     print(f"[{args.label}] DONE {agg['wins']}-{agg['losses']} | "
           f"{agg['total_gems']} gems | fuel {agg.get('total_fuel_exhausted', 0)} | "
+          f"wards {agg.get('total_wards', 0)} | buys {agg.get('total_buys', 0)} | "
+          f"consumables {agg.get('total_consumables', 0)} | "
           f"{agg['bot_faults']} faults | {agg['elapsed_minutes']} min", flush=True)
 
 
