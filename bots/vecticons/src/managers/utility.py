@@ -811,11 +811,15 @@ def can_shop(snap) -> bool:
 
     GameRules:361 - dead champions retain their shopping turns. The alive
     case is a pure-Python test against the cached spawn coordinates (no
-    engine read): the snapshot caches them as plain ints.
+    engine read): the snapshot caches them as plain ints in a set, so the
+    test is one lookup (S2.4 fuel contract).
     """
     if not snap.is_alive:
         return True
     px, py = snap.origin_xy
+    spawn_set = getattr(snap, "spawn_xy_set", None)
+    if spawn_set:
+        return (px, py) in spawn_set
     for entry in getattr(snap, "spawn_coords", None) or ():
         try:
             if int(entry[0]) == px and int(entry[1]) == py:
@@ -850,6 +854,13 @@ def shop_candidates(snap) -> list[Candidate]:
     always present (gold held earns nothing, but the consumable reserve is
     worth keeping), so the shop decision is a real comparison and not a
     hardcoded gate.
+
+    S2.4.3 - the ALTAR LOCK is the third option. It is a DENIAL
+    consumable (10 gold): it removes an altar from the enemy's banking
+    options, but only when the intel says the enemy is actually using
+    that altar (lock_traffic). The shard keeps priority: the lock is only
+    offered when the shard is NOT affordable, so a permanent stat is never
+    traded for a situational denial.
     """
     out: list[Candidate] = []
     if not can_shop(snap):
@@ -860,14 +871,20 @@ def shop_candidates(snap) -> list[Candidate]:
         cost = int(item.cost())
     except Exception:
         cost = 30
-    if cost <= 0:
-        return [["hold", None, float(config.CONSUMABLE_RESERVE_VALUE), "hold", None]]
     gold = int(snap.gold)
     reserve = int(config.CONSUMABLE_RESERVE_GOLD)
-    affordable = (gold - reserve) // cost
+    affordable = 0
+    if cost > 0:
+        affordable = (gold - reserve) // cost
     if affordable < 1:
-        # HOLD: the gold does not cover a shard AND the consumable reserve.
-        return [["hold", None, float(config.CONSUMABLE_RESERVE_VALUE), "hold", None]]
+        # The shard is not affordable: the LOCK is the alternative to
+        # holding the gold (it beats HOLD whenever the intel shows enemy
+        # traffic at an altar).
+        lock = lock_candidate(snap)
+        if lock is not None:
+            out.append(lock)
+        out.append(["hold", None, float(config.CONSUMABLE_RESERVE_VALUE), "hold", None])
+        return out
     owned = _shard_progress(snap, item)
     needed = max(1, int(config.EMBLEM_SHARD_COUNT) - owned)
     count = int(affordable)
@@ -883,6 +900,211 @@ def shop_candidates(snap) -> list[Candidate]:
     # stat; the reserve is already priced into the gold gate).
     out.append(["hold", None, float(config.CONSUMABLE_RESERVE_VALUE), "hold", None])
     return out
+
+
+# ---------------------------------------------------------------------------
+# S2.4.3 - the altar lock (the denial consumable).
+# ---------------------------------------------------------------------------
+# An altar lock costs 10 gold, is carried ONE at a time and is placed on
+# an altar within two tiles of the champion (GameRules "Altar locks"). It
+# blocks the OPPOSING team's tributes and cancels an existing enemy
+# channel, while the OWNER team can still pay tribute through it
+# (GameRules :237) - which is why the lock must never be scored as "our
+# altar is blocked" (that was the team-agnostic `has_altar_lock` bug).
+# ---------------------------------------------------------------------------
+
+
+def _traffic_present(snap) -> bool:
+    """Cheap pre-check: is there ANY enemy-traffic intel?
+
+    Two cached facts, no engine read and no per-altar loop: a contested
+    altar (own vision / an ally's fresh beacon flag) or a fresh sighting
+    in any region (broadcast intel).
+    """
+    if getattr(snap, "contested_altars", None):
+        return True
+    density = getattr(snap, "region_sightings", None) or {}
+    for _region, count in density.items():
+        if count:
+            return True
+    return False
+
+
+def lock_traffic(snap) -> dict:
+    """Per-altar ENEMY TRAFFIC score: {(x, y): score}.
+
+    The prior that makes a lock worth its 10 gold:
+      DIRECT - the altar is contested (own vision or an ally's fresh
+               beacon flag): the enemy is AT the altar.
+      REGION - a fresh sighting in the altar's region: the enemy is in
+               the neighbourhood.
+      FOG    - our own last-known enemy position is near the altar.
+
+    All inputs are cached facts (plain ints); no engine read. FUEL: this
+    is the full map (every altar x every remembered enemy), so it is only
+    used on shop turns - the per-turn path is lock_targets (the altars in
+    reach only).
+    """
+    coords = getattr(snap, "altar_coords", None) or ()
+    if not coords:
+        return {}
+    contested = getattr(snap, "contested_altars", frozenset()) or frozenset()
+    density = getattr(snap, "region_sightings", {}) or {}
+    regions = getattr(snap, "altar_regions", None) or {}
+    fog = getattr(snap, "fog_enemies", None) or ()
+    fog_radius = int(config.LOCK_FOG_RADIUS)
+    fog_w = float(config.LOCK_TRAFFIC_FOG)
+    direct_w = float(config.LOCK_TRAFFIC_DIRECT)
+    region_w = float(config.LOCK_TRAFFIC_REGION)
+    out: dict = {}
+    for entry in coords:
+        ax = int(entry[0])
+        ay = int(entry[1])
+        key = (ax, ay)
+        score = 0.0
+        if key in contested:
+            score += direct_w
+        region = -1
+        try:
+            region = int(regions.get(key, -1))
+        except Exception:
+            region = -1
+        if region >= 0:
+            try:
+                if int(density.get(region, 0)) > 0:
+                    score += region_w
+            except Exception:
+                pass
+        if fog and score < direct_w:
+            for record in fog:
+                dx = record[0] - ax
+                if dx < 0:
+                    dx = -dx
+                dy = record[1] - ay
+                if dy < 0:
+                    dy = -dy
+                if (dx if dx > dy else dy) <= fog_radius:
+                    score += fog_w
+                    break
+        if score > 0.0:
+            out[key] = score
+    return out
+
+
+def lock_targets(snap) -> list:
+    """The traffic altars within the placement radius, nearest first.
+
+    Only altars within the placement radius (two tiles) are candidates -
+    the lock must be placed from next to the altar. The nearest ones come
+    first (the tightest reach = the least walking).
+
+    FUEL: this is the PER-TURN path. It exits on the cheap pre-check (no
+    traffic intel at all -> nothing to lock) and only walks the altars
+    that are in reach.
+    """
+    if not _traffic_present(snap):
+        return []
+    coords = getattr(snap, "altar_coords", None) or ()
+    if not coords:
+        return []
+    px, py = snap.origin_xy
+    radius = int(config.ALTAR_LOCK_RADIUS)
+    contested = getattr(snap, "contested_altars", None) or frozenset()
+    density = getattr(snap, "region_sightings", None) or {}
+    regions = getattr(snap, "altar_regions", None) or {}
+    fog = getattr(snap, "fog_enemies", None) or ()
+    fog_radius = int(config.LOCK_FOG_RADIUS)
+    fog_w = float(config.LOCK_TRAFFIC_FOG)
+    direct_w = float(config.LOCK_TRAFFIC_DIRECT)
+    region_w = float(config.LOCK_TRAFFIC_REGION)
+    out = []
+    for entry in coords:
+        ax = int(entry[0])
+        ay = int(entry[1])
+        dx = ax - px
+        if dx < 0:
+            dx = -dx
+        dy = ay - py
+        if dy < 0:
+            dy = -dy
+        d = dx if dx > dy else dy
+        if d > radius:
+            continue
+        key = (ax, ay)
+        score = 0.0
+        if key in contested:
+            score += direct_w
+        region = -1
+        try:
+            region = int(regions.get(key, -1))
+        except Exception:
+            region = -1
+        if region >= 0:
+            try:
+                if int(density.get(region, 0)) > 0:
+                    score += region_w
+            except Exception:
+                pass
+        if fog and score < direct_w:
+            for record in fog:
+                ex = record[0] - ax
+                if ex < 0:
+                    ex = -ex
+                ey = record[1] - ay
+                if ey < 0:
+                    ey = -ey
+                if (ex if ex > ey else ey) <= fog_radius:
+                    score += fog_w
+                    break
+        if score > 0.0:
+            out.append((d, ax, ay))
+    out.sort()
+    return [(ax, ay) for _d, ax, ay in out]
+
+
+def lock_target(snap) -> tuple | None:
+    """The altar to lock: the traffic altar NEAREST to us (or None)."""
+    targets = lock_targets(snap)
+    if not targets:
+        return None
+    return targets[0]
+
+
+def lock_candidate(snap) -> Candidate | None:
+    """The scored LOCK purchase candidate, or None.
+
+    Bought only when:
+      - the shop is legal (the caller checks),
+      - the gold covers the lock AND the consumable reserve,
+      - we carry NO lock (the engine's carry limit is one),
+      - the intel shows enemy traffic at some altar.
+    The score is the denial value (LOCK_DENIAL_VALUE) - above the hold
+    value, so the lock beats holding the gold.
+    """
+    gold = int(snap.gold)
+    cost = int(config.ALTAR_LOCK_COST)
+    reserve = int(config.CONSUMABLE_RESERVE_GOLD)
+    if gold < cost + reserve:
+        return None
+    if not _traffic_present(snap):
+        return None
+    try:
+        slots = snap.me.consumables()
+        carried = int(slots[int(cambc.ConsumableType.ALTAR_LOCK)].count())
+    except Exception:
+        return None
+    if carried > 0:
+        return None
+    target = None
+    best = 0.0
+    for coord, score in lock_traffic(snap).items():
+        if score > best:
+            best = score
+            target = coord
+    if target is None:
+        return None
+    return ["lock", target, float(config.LOCK_DENIAL_VALUE),
+            f"g={gold} traffic={best:.1f}", None]
 
 
 def shop_candidate(snap) -> Candidate | None:
@@ -1167,6 +1389,21 @@ def _farm_candidates(snap, field, clear_map=None) -> list:
     visible.sort()
     zone.sort()
 
+    # S2.4: the SCOUTING INTEREST - the nearest UNSEEN camp groups (the
+    # zones we have not seen yet). Plain ints, no engine read: the ward
+    # mini-argmax reuses this scan instead of walking the group table a
+    # second time (the fuel contract - in this wasm build one statement
+    # in a loop costs ~700 fuel). The stash happens only on the turns
+    # where the ward can actually be placed (snap.want_ward).
+    if getattr(snap, "want_ward", False):
+        try:
+            snap.ward_interest = tuple(
+                (row[3], row[4], float(config.WARD_CAMP_WEIGHT))
+                for _cheap, row in zone[:3]
+            )
+        except Exception:
+            snap.ward_interest = ()
+
     discount = _T_DISCOUNT
     if clear_map is None:
         clear_map = _clear_map(snap)
@@ -1405,14 +1642,14 @@ def generate_candidates(snap) -> list[Candidate]:
     except Exception as error:
         _report("boss generator", error)
 
-    # S2.4: the shopping decision (family shard vs hold) joins the scored
-    # candidate set. Buying is a FREE parallel action - it costs no
+    # S2.4: the shopping decision (family shard vs lock vs hold) joins the
+    # scored candidate set. Buying is a FREE parallel action - it costs no
     # move/attack allowance - so bot.py executes the purchase and then
     # removes the shop candidate from the argmax set: a purchase must not
     # shadow the turn's movement / fight decision.
     try:
         shop = shop_candidate(snap)
-        if shop is not None and shop[0] == "shop":
+        if shop is not None and shop[0] in ("shop", "lock"):
             out.append(shop)
     except Exception as error:
         _report("shop generator", error)

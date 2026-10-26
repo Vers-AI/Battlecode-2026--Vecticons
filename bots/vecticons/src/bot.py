@@ -104,6 +104,15 @@ class Bot:
         # S2.4: rate limit for the shopping evidence prints (a regular
         # print, so it survives --release).
         self.shop_logs = 0
+        # S2.4: the ward's trinket charge, mirrored locally. The engine
+        # is the authority (bot.ward_turn reads it when the mirror
+        # expires), but the mirror keeps the common turn at one
+        # comparison instead of an engine read (the fuel contract).
+        self.ward_cd = 0
+        # S2.4.3: do we CARRY an altar lock? The engine's carry limit is
+        # one, so the mirror is exact: we buy it (flag on) and place it
+        # (flag off). A respawn re-syncs it from the engine.
+        self.lock_carried = False
 
     def buy_items(self, champion_short_name: str, count: int = 1) -> bool:
         """Buy our emblem-family shard (ONE buyer, ONE mapping).
@@ -117,20 +126,44 @@ class Bot:
         item = config.power_shard_for(champion_short_name)
         return execution.buy_item(item, count)
 
-    def shop_turn(self, snap, where: str, count: int = 0) -> bool:
+    def shop_turn(self, snap, where: str, cand=None) -> bool:
         """The shopping action of a shop turn (on spawn or while dead).
 
-        The utility layer scores the purchase (family shard vs hold vs the
-        consumable reserve); this method only performs it.
+        The utility layer scores the purchase (family shard vs altar lock
+        vs hold vs the consumable reserve); this method only performs it.
+
+        S2.4.3: the "lock" candidate buys ONE altar lock. The engine's
+        carry limit is one lock at a time (GameRules "carry one at a
+        time"), and the assert below states that contract in the code.
         """
-        if count <= 0:
+        if cand is None:
             try:
                 cand = utility.shop_candidate(snap)
             except Exception:
                 cand = None
-            if cand is None or cand[0] != "shop":
+        if cand is None:
+            return False
+        kind = cand[0]
+        if kind == "lock":
+            carried = execution.consumable_count(cambc.ConsumableType.ALTAR_LOCK)
+            assert carried <= 1, f"altar lock carry limit exceeded: {carried}"
+            if carried > 0:
                 return False
-            count = int(cand[1])
+            bought = execution.buy_consumable(cambc.ConsumableType.ALTAR_LOCK)
+            if bought:
+                self.lock_carried = True
+            if bought and self.shop_logs < 3:
+                self.shop_logs += 1
+                print(
+                    f"s24: shop {where} ALTAR_LOCK gold={snap.gold}",
+                    flush=True,
+                )
+            return bought
+        if kind != "shop":
+            return False
+        count = int(cand[1])
+        if count <= 0:
+            return False
         try:
             short = observation.champion_short_for(snap)
         except Exception:
@@ -148,6 +181,105 @@ class Bot:
             except Exception:
                 pass
         return bought
+
+    def place_lock(self, snap) -> bool:
+        """Place a carried altar lock on the altar the intel points at.
+
+        S2.4.3: the lock is a FREE action (GameRules "you can use
+        consumable items without limit"), so it runs next to the ward
+        placement and does not consume the turn's movement. It is placed
+        on the nearest TRAFFIC altar (an altar the enemy is using) that
+        is within two tiles of us - the lock must be placed from next to
+        the altar.
+
+        FUEL: the inventory mirror (self.lock_carried) keeps the common
+        turn free - the engine's consumable count is only read when we
+        believe we carry a lock (or right after a respawn).
+        """
+        if getattr(self, "lock_resync", False):
+            self.lock_resync = False
+            try:
+                self.lock_carried = (
+                    execution.consumable_count(cambc.ConsumableType.ALTAR_LOCK) > 0
+                )
+            except Exception:
+                self.lock_carried = False
+        if not self.lock_carried:
+            return False
+        targets = utility.lock_targets(snap)
+        if not targets:
+            return False
+        placed = False
+        target = None
+        for coord in targets:
+            if execution.altar_lock_occupied(snap, coord):
+                continue
+            placed = execution.use_altar_lock(snap, coord)
+            target = coord
+            break
+        if placed:
+            self.lock_carried = False
+        if placed and self.shop_logs < 6:
+            self.shop_logs += 1
+            print(
+                f"s24: lock altar=({target[0]},{target[1]})",
+                flush=True,
+            )
+        return placed
+
+    def ward_turn(self, snap, candidates) -> bool:
+        """The ward mini-argmax (S2.4) - a FREE parallel action.
+
+        The ward spends the trinket charge, NOT the move/attack
+        allowance (GameRules :116), so it is placed independently of the
+        turn's action. The engine folds the ward's vision into our own
+        vision from the next round on, so the observation layer (visible
+        camps, enemy sightings) and the S2.1/S2.2 signal path see
+        through it.
+
+        The interest tiles are the nearest UNSEEN camp groups (stashed by
+        the utility layer's farm scan on this turn), the chosen bank
+        altar and the objective path's midpoint - all plain ints, no
+        engine read.
+        """
+        if self.ward_cd > 0:
+            self.ward_cd -= 1
+            return False
+        # The engine is the authority on the trinket charge: one read.
+        try:
+            cd = int(cambc.me().ward_cooldown())
+        except Exception:
+            cd = 0
+        if cd > 0:
+            self.ward_cd = cd
+            return False
+        interest = []
+        for entry in getattr(snap, "ward_interest", ()) or ():
+            interest.append((entry[0], entry[1], entry[2]))
+        # The objective path: the altar we are going to bank at and the
+        # midpoint of the walk to it.
+        for cand in candidates or ():
+            if cand[0] == "bank":
+                try:
+                    ax = int(cand[1][0])
+                    ay = int(cand[1][1])
+                except Exception:
+                    break
+                interest.append((ax, ay, float(config.WARD_ALTAR_WEIGHT)))
+                px, py = snap.origin_xy
+                interest.append(
+                    ((px + ax) // 2, (py + ay) // 2, float(config.WARD_PATH_WEIGHT))
+                )
+                break
+        if not interest:
+            # Nothing worth seeing yet: back off a few rounds instead of
+            # asking the engine every turn.
+            self.ward_cd = 5
+            return False
+        placed = scouting.place_ward(snap, interest)
+        if placed:
+            self.ward_cd = int(config.WARD_COOLDOWN_ROUNDS)
+        return placed
 
     def play_turn(self):
         # First-turn bookkeeping.
@@ -201,6 +333,17 @@ class Bot:
                 )
             )
 
+        # S2.4.3: the fog traffic prior for the altar lock - our own
+        # last-known enemy positions as plain ints (no engine read: the
+        # memory was just updated above).
+        try:
+            snap.fog_enemies = tuple(
+                (int(rec["x"]), int(rec["y"]))
+                for rec in intelligence.recent_sightings(self).values()
+            )
+        except Exception:
+            snap.fog_enemies = ()
+
         # S2.1: write our owned signal byte (write-only discipline) and
         # read the whole channel (read-all). Runs before the channeling
         # gate so a tribute-channeling champion still broadcasts — the
@@ -235,19 +378,6 @@ class Bot:
                 )
             )
 
-        # S2.4: the WARD mini-argmax - a FREE parallel action. The ward
-        # spends the champion's trinket charge, NOT the move/attack
-        # allowance (GameRules :116), so it is placed independently of
-        # the turn's action. The engine folds the ward's vision into our
-        # own vision from the next round on, so the observation layer
-        # (visible camps, enemy sightings) and the S2.1/S2.2 signal path
-        # see through it.
-        if snap.is_alive:
-            try:
-                scouting.place_ward(snap)
-            except Exception:
-                pass
-
         # Gate 1: channeling.
         #
         # S2.4: a DEAD champion is NOT a dead end - dead champions retain
@@ -257,18 +387,24 @@ class Bot:
         if snap.is_recalling or snap.is_submitting_gems or snap.is_teleporting:
             return
         if not snap.is_alive:
+            # S2.4.3: a respawn re-syncs the lock mirror (the engine
+            # decides whether a dead champion keeps its consumables).
+            self.lock_carried = False
+            self.lock_resync = True
             try:
                 self.shop_turn(snap, "dead")
             except Exception:
                 pass
             return
 
-        at_spawn = game_map.spawn_region(Team.ALLY).is_set(position)
-
         # Gate 2 is GONE (S2.4): the old hardcoded "on spawn -> buy every
         # POWER shard" gate is replaced by the SCORED shopping decision in
         # the utility layer (family shard vs hold vs the consumable
-        # reserve), which runs as part of the argmax below.
+        # reserve), which runs as part of the argmax below. The old
+        # gate's engine read (spawn_region(...).is_set(position)) went
+        # with it: the shop legality is a pure-Python test against the
+        # cached spawn tiles (utility.can_shop), so the turn no longer
+        # spends ~15k fuel on a bitboard draw it does not use.
 
         # Gate 3 is GONE (S2.3): the low-HP recall is a scored candidate now
         # (heal value + gold to spend, discounted by the walk home, scaled
@@ -276,6 +412,12 @@ class Bot:
         # the argmax instead of feeding it.
 
         # Build candidate set; pick argmax.
+        #
+        # S2.4: the ward's interest tiles come from the utility layer's
+        # farm scan (the nearest unseen camp groups) - the flag tells it
+        # to stash them on this turn (the fuel contract: no second scan
+        # over the group table).
+        snap.want_ward = self.ward_cd <= 0
         candidates = utility.generate_candidates(snap)
 
         # S2.4: the shopping decision is scored in the argmax (utility).
@@ -285,15 +427,32 @@ class Bot:
         # never shadow the turn's movement / fight decision.
         shop_cand = None
         for c in candidates:
-            if c[0] == "shop":
+            if c[0] in ("shop", "lock"):
                 shop_cand = c
                 break
         if shop_cand is not None:
             try:
-                self.shop_turn(snap, "spawn", count=int(shop_cand[1]))
+                self.shop_turn(snap, "spawn", cand=shop_cand)
             except Exception:
                 pass
-            candidates = [c for c in candidates if c[0] != "shop"]
+            candidates = [c for c in candidates if c[0] not in ("shop", "lock")]
+
+        # S2.4: the WARD mini-argmax - a FREE parallel action (the trinket
+        # charge, not the move/attack allowance). It runs after the
+        # candidate set is built so it can reuse the farm scan's interest
+        # tiles.
+        try:
+            self.ward_turn(snap, candidates)
+        except Exception:
+            pass
+
+        # S2.4.3: the altar lock - another FREE parallel action (GameRules
+        # "you can use consumable items without limit"). Placed on the
+        # altar the traffic intel points at.
+        try:
+            self.place_lock(snap)
+        except Exception:
+            pass
 
         cand = utility.best(candidates)
 

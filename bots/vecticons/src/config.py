@@ -432,6 +432,36 @@ CONSUMABLE_RESERVE_VALUE: float = 0.5
 # Shards needed for one emblem (GameRules: five matching shards combine).
 EMBLEM_SHARD_COUNT: int = 5
 
+# ---------------------------------------------------------------------------
+# S2.4 - altar locks (the denial consumable).
+# ---------------------------------------------------------------------------
+# An altar lock costs 10 gold, is placed within two tiles of an altar and
+# blocks the OPPOSING team's tributes until three basic attacks clear it
+# (GameRules "Consumables"). The owner team can still pay tribute through
+# its own lock (GameRules :237), so our locks never block our bankers.
+ALTAR_LOCK_COST: int = 10
+# The placement radius of the lock around the altar (GameRules: "within
+# two tiles").
+ALTAR_LOCK_RADIUS: int = 2
+# The denial value of a lock (gem-equivalents): it removes an altar from
+# the enemy's banking options for as long as they do not clear it. It is
+# only worth anything when the intel shows ENEMY TRAFFIC at an altar -
+# otherwise it is 10 gold of tuition (the task's "accept some wasted
+# placements as tuition until the prior sharpens").
+LOCK_DENIAL_VALUE: float = 2.0
+# The traffic prior (the intel that makes a lock worth its 10 gold):
+#   DIRECT  - an enemy is at/near the altar (own vision or an ally's
+#             fresh beacon flag): the enemy is USING this altar.
+#   REGION  - a fresh sighting in the altar's region (broadcast intel):
+#             the enemy is in the neighbourhood, not necessarily at it.
+#   FOG     - our own last-known enemy position is near the altar.
+# A lock is only bought when the traffic prior is non-zero.
+LOCK_TRAFFIC_DIRECT: float = 3.0
+LOCK_TRAFFIC_REGION: float = 1.0
+LOCK_TRAFFIC_FOG: float = 1.0
+# How near a remembered enemy must be to count as fog traffic at an altar.
+LOCK_FOG_RADIUS: int = 4
+
 
 def _short_name(champion_name) -> str:
     """Normalise a champion name to its short form ('RYTH')."""
@@ -472,6 +502,10 @@ WARD_ALTAR_WEIGHT: float = 2.0
 # by the coarse score). The candidate set is the 5x5 box around us, so
 # this bounds the whole per-turn cost of the argmax.
 WARD_CANDIDATE_CAP: int = 5
+# The trinket charge: the rounds between two ward placements (the engine
+# constant WARD_COOLDOWN, resolved in resolve()). bot.py mirrors it
+# locally so the common turn costs one comparison, not an engine read.
+WARD_COOLDOWN_ROUNDS: int = 1
 
 # Cached cambc.constants lookups, lazy to avoid the wasm preload.
 _resolved = False
@@ -485,6 +519,7 @@ def resolve() -> None:
     """Resolve cached engine constants exactly once. Safe to call repeatedly."""
     global _resolved, TRIBUTE_RANGE, CAPTURE_ROUNDS, RESPAWN_ROUNDS
     global KILL_GOLD_ON_DEATH, WARD_VISION_RADIUS, WARD_PLACEMENT_RADIUS
+    global WARD_COOLDOWN_ROUNDS
     if _resolved:
         return
     import cambc.constants as _constants
@@ -498,6 +533,10 @@ def resolve() -> None:
         pass
     try:
         WARD_PLACEMENT_RADIUS = int(_constants.WARD_PLACEMENT_RADIUS)
+    except Exception:
+        pass
+    try:
+        WARD_COOLDOWN_ROUNDS = int(_constants.WARD_COOLDOWN)
     except Exception:
         pass
     _resolved = True

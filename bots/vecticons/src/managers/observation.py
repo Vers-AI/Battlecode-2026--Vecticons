@@ -99,6 +99,17 @@ class Snapshot:
     region_sightings: dict = field(default_factory=dict)
     contested_altars: frozenset = frozenset()
 
+    # S2.4.3: our own last-known enemy positions as (x, y) plain ints
+    # (the fog traffic prior for the altar lock). Filled by bot.py from
+    # intelligence.recent_sightings - no engine read.
+    fog_enemies: tuple = ()
+    # S2.4: the ward's scouting interest - the nearest UNSEEN camp groups
+    # as (x, y, weight) plain ints. Filled by the utility layer's farm
+    # scan on the turns where the ward can be placed (want_ward), so the
+    # ward mini-argmax costs no extra scan.
+    ward_interest: tuple = ()
+    want_ward: bool = False
+
     # S2.3 shared per-turn distance infrastructure (managers.fielding).
     # The scoring DistanceField and its reachable set are cached here so the
     # whole turn scores against ONE field.
@@ -209,6 +220,9 @@ class Snapshot:
     altar_coords: tuple = ()
     # Our spawn tiles as (x, y, Vec2) - the recall walk home.
     spawn_coords: tuple = ()
+    # The spawn tiles as a SET of (x, y) - the shop-legality test
+    # (utility.can_shop) is a set lookup, not a scan (S2.4 fuel).
+    spawn_xy_set: frozenset = frozenset()
     # The ENEMY spawn tiles as (x, y) plain ints (static map data). S2.4:
     # the ward's "enemy-side altar" test compares the altars' distance to
     # the two spawn centres.
@@ -616,6 +630,7 @@ def _populate_map_cache(bot, snap, s23_cache: bool = False) -> None:
             snap.altar_coords = cache["altar_coords"]
             snap.altar_approach = cache.get("altar_approach", {})
             snap.spawn_coords = cache["spawn_coords"]
+            snap.spawn_xy_set = cache.get("spawn_xy_set", frozenset())
             snap.enemy_spawn_coords = cache.get("enemy_spawn_coords", ())
             snap.map_size = cache["map_size"]
             snap.killable_keys = cache.get("killable_keys", frozenset())
@@ -882,6 +897,10 @@ def _populate_map_cache(bot, snap, s23_cache: bool = False) -> None:
             except Exception:
                 continue
         spawn_coords = tuple(coords)
+        # S2.4: the spawn tiles as a SET of (x, y) - the shop-legality
+        # test (utility.can_shop) is a set lookup instead of a scan over
+        # the whole spawn region every turn (the fuel contract).
+        spawn_xy_set = frozenset((int(c[0]), int(c[1])) for c in coords)
         # S2.4: the ENEMY spawn region as plain ints (static map data).
         # The ward's "enemy-side altar" test needs to know which half of
         # the map the enemy works; one engine read, once per match.
@@ -1045,6 +1064,7 @@ def _populate_map_cache(bot, snap, s23_cache: bool = False) -> None:
         "altar_coords": altar_coords,
         "altar_approach": altar_approach,
         "spawn_coords": spawn_coords,
+        "spawn_xy_set": spawn_xy_set,
         "enemy_spawn_coords": enemy_spawn_coords,
         "map_size": map_size,
         "killable_keys": killable_keys,
@@ -1077,6 +1097,7 @@ def _populate_map_cache(bot, snap, s23_cache: bool = False) -> None:
     snap.altar_coords = altar_coords
     snap.altar_approach = altar_approach
     snap.spawn_coords = spawn_coords
+    snap.spawn_xy_set = spawn_xy_set
     snap.enemy_spawn_coords = enemy_spawn_coords
     snap.map_size = map_size
     snap.killable_keys = killable_keys

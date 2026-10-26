@@ -676,6 +676,96 @@ def buy_item(item, count: int = 1) -> bool:
         return False
 
 
+def consumable_count(kind) -> int:
+    """How many of a consumable we carry (0 when the slot is empty).
+
+    One engine read (`champion_consumables`); only the shop / lock paths
+    ask for it.
+    """
+    try:
+        me = cambc.me()
+        slots = me.consumables()
+        return int(slots[int(kind)].count())
+    except Exception:
+        return 0
+
+
+def buy_consumable(kind) -> bool:
+    """Buy ONE consumable (the engine buys consumables one at a time).
+
+    `can_buy` takes no count for a consumable and checks both the gold
+    and the carry limit (BotAPIPython:3616). The carry limit of the altar
+    lock is ONE (GameRules "carry one at a time"), so the assert below is
+    the belt to the engine's braces.
+    """
+    me = cambc.me()
+    try:
+        if not me.can_buy(kind):
+            return False
+        me.buy(kind, 1)
+        return True
+    except Exception:
+        return False
+
+
+def altar_lock_occupied(snap, altar) -> bool:
+    """True when ANY team already has a lock on this altar.
+
+    ONE engine read (both teams' lock bitboards). Only the placement
+    path asks for it - a lock on an already-locked altar is refused by
+    the engine (INVALID_ACTION_ALTAR_LOCK_ALREADY_LOCKED).
+    """
+    vec = None
+    vecs = getattr(snap, "altar_vecs", None) or {}
+    try:
+        vec = vecs.get((int(altar[0]), int(altar[1])))
+    except Exception:
+        vec = None
+    if vec is None:
+        try:
+            vec = cambc.Vec2(int(altar[0]), int(altar[1]))
+        except Exception:
+            return False
+    try:
+        return bool(cambc.vision.altar_lock_tiles().is_set(vec))
+    except Exception:
+        return False
+
+
+def use_altar_lock(snap, altar) -> bool:
+    """Place our carried altar lock on an altar.
+
+    The lock is used ON the altar (GameRules: "Place on an altar within
+    two tiles"); the engine reports a bad altar / an out-of-range altar /
+    an already-locked altar as error codes. The destination is the altar's
+    STATIC Vec2 (observation.altar_vecs), so no coordinate is read out of
+    the engine here.
+    """
+    try:
+        me = cambc.me()
+        slots = me.consumables()
+        slot = slots[int(cambc.ConsumableType.ALTAR_LOCK)]
+        if int(slot.count()) <= 0:
+            return False
+    except Exception:
+        return False
+    vec = None
+    vecs = getattr(snap, "altar_vecs", None) or {}
+    try:
+        vec = vecs.get((int(altar[0]), int(altar[1])))
+    except Exception:
+        vec = None
+    if vec is None:
+        try:
+            vec = cambc.Vec2(int(altar[0]), int(altar[1]))
+        except Exception:
+            return False
+    try:
+        return bool(slot.use(vec))
+    except Exception:
+        return False
+
+
 def attacked_by_enemy(snap) -> bool:
     """Return True if a visible enemy champion is within this champion's attack range."""
     me = cambc.me()
