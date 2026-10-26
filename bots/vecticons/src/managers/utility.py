@@ -486,52 +486,57 @@ def _bank_candidates(snap, field) -> list:
     channel length is priced in, and the carried-gem risk term multiplies
     the score by P(survive the trip) (the path-exposure term below).
 
-    S2.3.4: the altar distances are read even when the bag is empty: the
-    farm candidates need the distance to the altar to price the trip HOME
-    (see _bank_leg), and the bag is empty exactly when the bot is out
-    farming. The read set is the same one the bank candidate uses, so the
-    cost is unchanged for a turn that does bank.
+    S2.3 FUEL: an empty bag means NO bank candidate at all, so the altar
+    distances are not read. The distances used to be read BEFORE that test
+    - 10 altars x 4 field reads plus the approach-ring ranking, measured
+    ~616k fuel a turn on 01yellow_brick_road (a quarter of the per-turn
+    budget) - for a candidate that was then thrown away. The dead
+    `snap.altar_distance` fact (written here, read nowhere) went with it.
+
+    S2.3 FUEL: the altars are read in the order of their SCORE BOUND. The
+    straight-line distance is a lower bound of the path distance, so
+    base x discount ** (straight + channel) x modifiers is an UPPER bound of
+    the altar's score; the scan stops as soon as the bound cannot beat the
+    best score found so far. The altars that are scored are the ones that
+    can still win the argmax, and the honest distance decides between them.
     """
     _ensure_resolved()
-    coords = getattr(snap, "altar_coords", None) or ()
-    distances = []
-    best_d = None
-    for ax, ay in coords:
-        if _altar_locked(snap, (ax, ay)):
-            continue
-        d, tile = fielding.altar_distance(snap, field, ax, ay)
-        if d is None:
-            continue  # unreachable: scores 0 by arithmetic
-        distances.append((int(ax), int(ay), int(d), tile))
-        if best_d is None or int(d) < best_d:
-            best_d = int(d)
-    try:
-        snap.altar_distance = best_d
-    except Exception:
-        pass
     if snap.gems < config.BANK_THRESHOLD:
+        # No gems: no bank candidate (and no altar distance reads).
+        return []
+    coords = getattr(snap, "altar_coords", None) or ()
+    if not coords:
         return []
     base = float(snap.gems) * float(config.BANK_UTILITY_PER_GEM)
     discount = _discount()
     channel = _tribute_turns(snap.gems)
     contested = getattr(snap, "contested_altars", frozenset()) or frozenset()
     density = getattr(snap, "region_sightings", {}) or {}
-    cands = []
-    for ax, ay, d, tile in distances:
-        raw = base * (discount ** max(0, d + channel))
-        score = raw
-        with_contest = raw
-        note = f"d={d} g={snap.gems}"
+    regions = getattr(snap, "altar_regions", None) or {}
+    px, py = snap.origin_xy
+    # One pass over the altars: the modifiers and the score bound are
+    # plain-int / float arithmetic (no engine call).
+    entries = []
+    for ax, ay in coords:
+        if _altar_locked(snap, (ax, ay)):
+            continue
+        dx = int(ax) - px
+        if dx < 0:
+            dx = -dx
+        dy = int(ay) - py
+        if dy < 0:
+            dy = -dy
+        cheap = dx if dx > dy else dy
+        mod = 1.0
+        note = ""
         try:
             if (int(ax), int(ay)) in contested:
-                with_contest = raw * float(config.BANK_CONTEST_PENALTY)
-                score = with_contest
-                note += " contest"
+                mod *= float(config.BANK_CONTEST_PENALTY)
+                note = " contest"
             # S2.3 FUEL: the altar's region id is STATIC
             # (observation.altar_regions) - the score used to call
             # intelligence.region_of() per altar per turn.
             region = -1
-            regions = getattr(snap, "altar_regions", None) or {}
             try:
                 region = regions.get((int(ax), int(ay)), -1)
             except Exception:
@@ -540,13 +545,41 @@ def _bank_candidates(snap, field) -> list:
                 region = int(intelligence.region_of(ax, ay))
             risk = int(density.get(region, 0))
             if risk:
-                score *= float(config.REGION_RISK_FACTOR) ** risk
+                mod *= float(config.REGION_RISK_FACTOR) ** risk
                 note += f" risk={risk}"
         except Exception:
             pass
-        cands.append(["bank", (ax, ay), score, note, (tile,), raw, with_contest, d])
+        upper = base * (discount ** max(0, cheap + channel)) * mod
+        entries.append((upper, int(ax), int(ay), mod, note))
+    if not entries:
+        return []
+    entries.sort(key=lambda item: -item[0])
+    cands = []
+    best = 0.0
+    for upper, ax, ay, mod, note in entries:
+        if upper <= best:
+            # Every remaining altar is bounded below this one, so none of
+            # them can win the argmax: no field read, no candidate.
+            break
+        d, tile = fielding.altar_distance(snap, field, ax, ay)
+        if d is None:
+            continue  # unreachable: scores 0 by arithmetic
+        raw = base * (discount ** max(0, d + channel))
+        score = raw * mod
+        if score <= 0.0:
+            continue
+        cands.append(
+            ["bank", (ax, ay), score, f"d={d} g={snap.gems}{note}", (tile,),
+             raw, raw * float(config.BANK_CONTEST_PENALTY) if "contest" in note
+             else raw, d]
+        )
+        if score > best:
+            best = score
     if not cands:
         return []
+    # The candidates keep the altars' coordinate order (the argmax breaks
+    # ties by input order).
+    cands.sort(key=lambda c: (c[1][0], c[1][1]))
     winner = max(cands, key=lambda c: c[2])
     if "contest" in winner[3]:
         raw_pick = max(cands, key=lambda c: c[5])[1]
@@ -753,7 +786,7 @@ def _flee_candidates(snap) -> list:
     return []
 
 
-def _boss_candidates(snap, field, best_other: float) -> list:
+def _boss_candidates(snap, field, best_other: float, clear_map=None) -> list:
     """Boss candidates: the excluded groups (Monolith, mega-packs).
 
     S2.3 boss graduation (owner ruling 2026-10-22): the groups the
@@ -761,8 +794,7 @@ def _boss_candidates(snap, field, best_other: float) -> list:
         (drops + unlock_value) x discount ^ (d + turns) x P(survive)
     - drops = the group's real gold/gem value (draft-time map data);
     - unlock_value = the precomputed reachability delta of the group (what
-      opens if the group's tiles open: altars and gem groups behind the
-      door);
+      opens if its tiles open: altars and gem groups behind the door);
     - the estimated turns are honest (group HP / our team DPS), so the early
       game prices the Monolith out BY ARITHMETIC (discount ^ hundreds of
       turns ~ 0 and a hopeless P(survive)) instead of by a gate.
@@ -778,32 +810,43 @@ def _boss_candidates(snap, field, best_other: float) -> list:
     (observation.excluded_groups), so the generator no longer scans every
     group on the map every turn to find them (46 groups x a metadata read
     each = the whole boss generator's budget).
+
+    S2.3 FUEL: the per-group constants (the prize, the clear class and the
+    anchor tile) are cached as flat rows (observation.boss_rows) and the
+    clear time and P(survive) come from the SHARED clear-class table, so
+    the per-turn loop is pure arithmetic over tuples. The old loop re-read
+    the group's metadata per boss (a dict get, four float() conversions
+    and a math.ceil call): ~37k fuel per boss per turn, ~150k a turn on
+    01yellow_brick_road.
     """
     out = []
-    excluded_groups = getattr(snap, "excluded_groups", None)
-    if not excluded_groups:
+    boss_rows = getattr(snap, "boss_rows", None) or ()
+    if not boss_rows:
         return out
-    meta_all = getattr(snap, "group_meta", {}) or {}
-    team_dps = _team_dps(snap)
+    if clear_map is None:
+        clear_map = _clear_map(snap)
+    if not clear_map:
+        return out
     discount = _discount()
+    px, py = snap.origin_xy
     bosses = []
-    for key, group in excluded_groups:
-        meta = meta_all.get(key) or {}
-        if not meta:
+    for key, group, value, cid, ax, ay, unlock in boss_rows:
+        ci = clear_map.get(cid)
+        if ci is None:
             continue
-        drops = _group_value(meta)
-        unlock = float(meta.get("unlock_value", 0))
-        hp = float(meta.get("static_hp", 0))
-        turns = max(1, int(math.ceil(hp / team_dps))) if team_dps > 0 else 1
-        survive = _clear_survival(meta, turns, float(snap.max_hp))
-        value = drops + unlock
+        turns = ci[0]
+        survive = ci[1]
         if value <= 0.0:
             continue
-        cheap_d = _anchor_distance(snap, key)
-        if cheap_d >= 10 ** 9:
-            continue
-        upper = value * (discount ** max(0, cheap_d + turns)) * survive
-        bosses.append((upper, value, turns, survive, key, group, meta, cheap_d))
+        dx = ax - px
+        if dx < 0:
+            dx = -dx
+        dy = ay - py
+        if dy < 0:
+            dy = -dy
+        cheap = dx if dx > dy else dy
+        upper = value * (discount ** max(0, cheap + turns)) * survive
+        bosses.append((upper, value, turns, survive, key, group, unlock, cheap))
     if not bosses:
         return out
     # Keep only the bosses whose UPPER bound can still beat the field.
@@ -816,7 +859,7 @@ def _boss_candidates(snap, field, best_other: float) -> list:
     # One boss-engagement field for the survivors (terrain-only walls, the
     # boss tiles are destinations).
     dests = cambc.Bitboard()
-    for _upper, _value, _turns, _survive, key, _group, _meta, _d in bosses:
+    for _upper, _value, _turns, _survive, key, _group, _unlock, _d in bosses:
         try:
             tiles = observation.group_tiles(snap, _group)
         except Exception:
@@ -832,7 +875,7 @@ def _boss_candidates(snap, field, best_other: float) -> list:
         boss_field = fielding.boss_field(snap, dests)
     if boss_field is None:
         return out
-    for _upper, value, turns, survive, key, group, meta, _cheap in bosses:
+    for _upper, value, turns, survive, key, group, unlock, _cheap in bosses:
         d, tile = fielding.group_distance(snap, boss_field, key)
         if d is None:
             continue  # cannot reach it even with the terrain-only wall set
@@ -843,7 +886,7 @@ def _boss_candidates(snap, field, best_other: float) -> list:
                 "boss",
                 group,
                 score,
-                f"d={d} turns={turns} unlock={int(meta.get('unlock_value', 0))}",
+                f"d={d} turns={turns} unlock={int(unlock)}",
                 (tile,),
             ]
         )
@@ -931,7 +974,7 @@ def _risk_map(snap) -> dict:
     return out
 
 
-def _farm_candidates(snap, field) -> list:
+def _farm_candidates(snap, field, clear_map=None) -> list:
     """Farm candidates - one per killable camp group (visible + zone), capped.
 
     Performance contract: the per-turn cost is bounded by the visible camp
@@ -1014,7 +1057,8 @@ def _farm_candidates(snap, field) -> list:
     zone.sort()
 
     discount = _T_DISCOUNT
-    clear_map = _clear_map(snap)
+    if clear_map is None:
+        clear_map = _clear_map(snap)
     risk = _risk_map(snap)
     if not clear_map:
         return out
@@ -1104,6 +1148,16 @@ def _apply_path_exposure(cands, snap, field) -> None:
     bot = getattr(snap, "bot", None)
     if bot is None:
         return
+    # S2.3 FUEL: the exposure probe is an OPTIONAL read (a risk multiplier,
+    # not a candidate source). When the turn is nearly spent it is skipped:
+    # a fresh gradient walk costs ~3.6k fuel per step, so one long walk can
+    # eat a third of the remaining turn budget. The read is one engine call
+    # (~13k fuel) and it buys a bounded number of walks.
+    try:
+        if int(cambc.fuel_remaining()) < int(config.PATH_EXPOSURE_MIN_FUEL):
+            return
+    except Exception:
+        pass
     budget = int(config.PATH_EXPOSURE_CANDIDATES)
     order = sorted(range(len(cands)), key=lambda i: -float(cands[i][2]))
     selected = []
@@ -1158,6 +1212,14 @@ def generate_candidates(snap) -> list[Candidate]:
     except Exception as error:
         _report("scoring field", error)
         field = None
+    # The clear-class table (clear time + P(survive the clear) per class) is
+    # shared by the farm and the boss generators: the classes are static, so
+    # the table is built ONCE per turn.
+    try:
+        clear_map = _clear_map(snap)
+    except Exception as error:
+        _report("clear map", error)
+        clear_map = {}
     for name, fn in (
         ("capture", lambda: _capture_candidates(snap, field)),
         ("bank", lambda: _bank_candidates(snap, field)),
@@ -1175,7 +1237,7 @@ def generate_candidates(snap) -> list[Candidate]:
     # value, which the S2.3 scoring no longer guarantees - a weak fight
     # candidate must not hide a much better farm target.
     try:
-        out.extend(_farm_candidates(snap, field))
+        out.extend(_farm_candidates(snap, field, clear_map))
     except Exception as error:
         _report("farm generator", error)
 
@@ -1183,7 +1245,7 @@ def generate_candidates(snap) -> list[Candidate]:
     # produced, so a hopeless boss never builds its own field.
     try:
         best_other = max([float(c[2]) for c in out], default=0.0)
-        out.extend(_boss_candidates(snap, field, best_other))
+        out.extend(_boss_candidates(snap, field, best_other, clear_map))
     except Exception as error:
         _report("boss generator", error)
 

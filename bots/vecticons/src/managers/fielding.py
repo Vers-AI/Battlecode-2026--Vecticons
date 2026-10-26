@@ -90,14 +90,29 @@ def terrain_walls() -> Any:
 
 
 def scoring_walls(snap) -> Any:
-    """The scoring wall set: terrain + the STATIC excluded-group overlay."""
-    cached = getattr(snap, "scoring_walls", None)
-    if cached is not None:
-        return cached
+    """The scoring wall set: terrain + the STATIC excluded-group overlay.
+
+    S2.3 FUEL: the set is STATIC for the life of the match - the terrain
+    never changes and the excluded-group overlay is precomputed on the
+    first turn - so it is cached on the Bot. Rebuilding it every turn cost
+    two map-sized Bitboard copies plus an OR: measured ~340k fuel a turn on
+    01yellow_brick_road (14% of the 2.475M per-turn budget) for a set that
+    never changes.
+    """
+    bot = getattr(snap, "bot", None)
+    if bot is not None:
+        cached = getattr(bot, "scoring_walls", None)
+        if cached is not None:
+            return cached
     walls = terrain_walls().copy()
     overlay = getattr(snap, "excluded_tiles", None)
     if overlay is not None:
         walls |= overlay
+    if bot is not None:
+        try:
+            bot.scoring_walls = walls
+        except Exception:
+            pass
     snap.scoring_walls = walls
     return walls
 
@@ -138,8 +153,19 @@ def scoring_field(snap) -> Any:
             snap.distance_field = cached[1]
             snap.field_visited = cached[2]
             return cached[1]
-    walls = scoring_walls(snap).copy()
-    walls.set(snap.position, False)
+    walls = scoring_walls(snap)
+    # The field's roots are our own tile, so our tile must not be a wall.
+    # The static wall set is shared (cached on the Bot), so it is only
+    # copied when our tile really is in it - standing on an excluded
+    # group's spawn tile, which is the one case that can happen.
+    # `field.compute` does not mutate the wall bitboard (probe-verified),
+    # so the shared set survives the call.
+    try:
+        if walls.is_set(snap.position):
+            walls = walls.copy()
+            walls.set(snap.position, False)
+    except Exception:
+        pass
     roots = cambc.Bitboard()
     roots.set(snap.position)
     visited = cambc.Bitboard()
@@ -491,7 +517,7 @@ def goal_walk(snap, field, goal, limit: int | None = None):
 # keeps a target that flip-flops between two camps from rebuilding the walk
 # every turn.
 
-PATH_CACHE_ENTRIES: int = 4
+PATH_CACHE_ENTRIES: int = 8
 
 
 def _path_cache(bot) -> dict:

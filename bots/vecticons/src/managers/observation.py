@@ -241,6 +241,20 @@ class Snapshot:
     #   10 tiles       - the group's other spawn tiles (Vec2), for the
     #                    sealed-anchor fallback read
     farm_rows: tuple = ()
+    # The groups that fail the killable filter (Monolith / over-cap static
+    # HP) as (key, group) pairs, with their STATIC boss value.
+    #
+    # S2.3 FUEL: a boss row is
+    #   0 key          - the group's engine handle
+    #   1 group        - the group handle (candidate payload)
+    #   2 value        - drops + unlock_value (the boss's total prize)
+    #   3 cls          - the clear class id (see farm_classes)
+    #   4 ax, 5 ay     - the anchor tile's coordinates as PLAIN INTS
+    #   6 unlock       - the unlock value (diagnostic note)
+    # The per-turn boss loop used to re-read the group's metadata (a dict
+    # get, four float() conversions and a math.ceil call per boss): ~37k
+    # fuel per boss per turn, ~150k a turn on 01yellow_brick_road.
+    boss_rows: tuple = ()
     # The distinct (static HP, total strength) classes of the map. The
     # clear time and the P(survive the clear) depend only on the class,
     # the team's damage output and our health - so they are computed ONCE
@@ -271,6 +285,27 @@ class Snapshot:
     group_by_key: dict = field(default_factory=dict)
 
 
+# The engine's champion-state flag bits, cached once per process. Every
+# attribute lookup on the wasm-side enum class crosses the SDK boundary,
+# and the per-turn fact read needs five of them.
+_STATE_FLAGS: tuple = ()
+
+
+def _state_flags() -> tuple:
+    """(CAN_MOVE, CAN_ATTACK, RECALLING, SUBMITTING_GEMS, TELEPORTING)."""
+    global _STATE_FLAGS
+    if not _STATE_FLAGS:
+        cs = cambc.ChampionState
+        _STATE_FLAGS = (
+            cs.CAN_MOVE,
+            cs.CAN_ATTACK,
+            cs.RECALLING,
+            cs.SUBMITTING_GEMS,
+            cs.TELEPORTING,
+        )
+    return _STATE_FLAGS
+
+
 def _me_facts(me, s23_cache: bool = False) -> Snapshot:
     """Our own facts.
 
@@ -284,11 +319,12 @@ def _me_facts(me, s23_cache: bool = False) -> Snapshot:
     if s23_cache:
         try:
             state = me.state()
-            can_move = bool(state & cambc.ChampionState.CAN_MOVE)
-            can_attack = bool(state & cambc.ChampionState.CAN_ATTACK)
-            is_recalling = bool(state & cambc.ChampionState.RECALLING)
-            is_submitting = bool(state & cambc.ChampionState.SUBMITTING_GEMS)
-            is_teleporting = bool(state & cambc.ChampionState.TELEPORTING)
+            flags = _state_flags()
+            can_move = bool(state & flags[0])
+            can_attack = bool(state & flags[1])
+            is_recalling = bool(state & flags[2])
+            is_submitting = bool(state & flags[3])
+            is_teleporting = bool(state & flags[4])
         except Exception:
             can_move = bool(me.can_move())
             can_attack = bool(me.can_attack())
@@ -538,6 +574,7 @@ def _populate_map_cache(bot, snap, s23_cache: bool = False) -> None:
             snap.farm_rows = cache.get("farm_rows", ())
             snap.farm_classes = cache.get("farm_classes", ())
             snap.excluded_groups = cache.get("excluded_groups", ())
+            snap.boss_rows = cache.get("boss_rows", ())
             snap.altar_vecs = cache.get("altar_vecs", {})
             snap.altar_regions = cache.get("altar_regions", {})
             snap.group_tile_xy = cache.get("group_tile_xy", {})
@@ -807,6 +844,7 @@ def _populate_map_cache(bot, snap, s23_cache: bool = False) -> None:
     farm_rows: tuple = ()
     farm_classes: tuple = ()
     excluded_groups: tuple = ()
+    boss_rows: tuple = ()
     group_by_key: dict = {}
     if s23_cache:
         try:
@@ -817,6 +855,7 @@ def _populate_map_cache(bot, snap, s23_cache: bool = False) -> None:
         class_list: list = []
         rows: list = []
         excluded_list: list = []
+        boss_list: list = []
         by_key: dict = {}
         for key, group in group_index:
             by_key[key] = group
@@ -868,9 +907,20 @@ def _populate_map_cache(bot, snap, s23_cache: bool = False) -> None:
                 or int(m.get("static_hp", 0)) > config.KILLABLE_HP_CAP
             ):
                 excluded_list.append((key, group))
+                # S2.3 FUEL: the boss's prize (its drops plus the reachability
+                # delta it unlocks) is a CONSTANT of the match, so it is
+                # computed here instead of per turn.
+                try:
+                    unlock = float(m.get("unlock_value", 0) or 0)
+                except Exception:
+                    unlock = 0.0
+                boss_list.append(
+                    (key, group, value + unlock, cid, rep[1], rep[2], int(unlock))
+                )
         farm_rows = tuple(rows)
         farm_classes = tuple(class_list)
         excluded_groups = tuple(excluded_list)
+        boss_rows = tuple(boss_list)
         group_by_key = by_key
 
     bot.map_cache = {
@@ -898,6 +948,7 @@ def _populate_map_cache(bot, snap, s23_cache: bool = False) -> None:
         "farm_rows": farm_rows,
         "farm_classes": farm_classes,
         "excluded_groups": excluded_groups,
+        "boss_rows": boss_rows,
         "group_by_key": group_by_key,
         "altar_vecs": altar_vecs,
         "altar_regions": altar_regions,
@@ -928,6 +979,7 @@ def _populate_map_cache(bot, snap, s23_cache: bool = False) -> None:
     snap.farm_rows = farm_rows
     snap.farm_classes = farm_classes
     snap.excluded_groups = excluded_groups
+    snap.boss_rows = boss_rows
     snap.group_by_key = group_by_key
     snap.altar_vecs = altar_vecs
     snap.altar_regions = altar_regions
@@ -1137,6 +1189,16 @@ def _read_visible_camps(snap) -> None:
             strength = float(design[1])
         else:
             strength = float(config.MONSTER_STRENGTH.get(kind, 0.0))
+        if strength <= 0.0:
+            # S2.3 FUEL: a strength-0 camp (a gem cluster or a gold cluster)
+            # cannot threaten anybody: its monsters deal no damage, so it
+            # never enters the threat model, and its health / state are read
+            # by nobody (snap.group_live_hp and snap.camp_states are write-
+            # only facts). The two SDK calls per camp are therefore pure
+            # waste for these camps - and they are the MAJORITY of the
+            # visible camps on the gold-heavy maps (01yellow_brick_road: ~16
+            # of ~22 visible camps are strength-0 clusters).
+            continue
         # S2.3.4 fuel: the camp's HEALTH is one SDK call, the camp's STATE
         # is another. A camp at FULL health has never been struck, so its
         # monster is still asleep (GameRules: "the monsters are friendly
@@ -1162,7 +1224,7 @@ def _read_visible_camps(snap) -> None:
             camp_states[handle] = state
             if is_dead:
                 dead[key] = dead.get(key, 0) + 1
-        if strength <= 0.0 or not is_awake:
+        if not is_awake:
             continue
         live_hp[key] = live_hp.get(key, 0.0) + hp
         try:
