@@ -435,7 +435,7 @@ def _anchor_distance(snap, key) -> int:
 # ---------------------------------------------------------------------------
 
 
-def _capture_hold(snap, key, d) -> int:
+def _capture_hold(snap, key, standing) -> int:
     """How long this champion has been HOLDING this group's capture.
 
     A capture that does not complete is a capture that is BLOCKED: the
@@ -450,10 +450,20 @@ def _capture_hold(snap, key, d) -> int:
     spent holding one tile.
 
     The hold therefore TIMES OUT: after CAPTURE_HOLD_MAX_ROUNDS rounds
-    of holding the same group, the capture is not going to happen and
-    the champion goes back to farming. The memory lives on the Bot
-    instance (per champion) and is pruned when the group stops being a
-    capture candidate (the capture landed, or the group was claimed).
+    of STANDING on the tile without the reward arriving, the capture is
+    not going to happen and the champion goes back to farming.
+
+    Only a champion that actually stands on one of the group's spawn
+    tiles holds the capture - a champion that is merely NEAR the group
+    (waiting for an ally to step off the tile, or walking in) holds
+    nothing, and the hold must not expire under it (01elk_arena: 130
+    camp clears and 72 banked gems at S2.4 - the first cut of this
+    timeout expired the capture of every group the champion could not
+    step onto, and the map banked 0 gems).
+
+    The memory lives on the Bot instance (per champion) and is pruned
+    when the group stops being a capture candidate (the capture landed,
+    or the group was claimed).
     """
     bot = getattr(snap, "bot", None)
     if bot is None:
@@ -466,12 +476,12 @@ def _capture_hold(snap, key, d) -> int:
         except Exception:
             return 0
     now = int(getattr(snap, "round_number", 0) or 0)
+    if not standing:
+        # Not on the tile: we hold nothing, so we hold no timer either.
+        mem.pop(key, None)
+        return 0
     start = mem.get(key)
     if start is None:
-        # The hold only starts when the champion is close enough for the
-        # capture to be the thing it is doing.
-        if int(d) > _T_CAPTURE_HOLD_TILES:
-            return 0
         mem[key] = now
         return 0
     return now - int(start)
@@ -521,14 +531,15 @@ def _capture_candidates(snap, field) -> list:
         # capture that is blocked (an enemy on one of the group's spawn
         # tiles delays the whole group). The champion must not spend the
         # match holding a tile that never pays out.
-        hold = _capture_hold(snap, key, d)
+        standing = _standing_on_group(snap, group)
+        hold = _capture_hold(snap, key, standing)
         if hold > _T_CAPTURE_HOLD:
             continue
         # B1: a capture we perform while a hostile champion is on us is
         # worth what we actually collect - nothing if we die first.
         score = _threat_adjust(snap, d + turns, score)
         note = f"d={d} v={int(value)}"
-        if _standing_on_group(snap, group):
+        if standing:
             score *= float(config.CAPTURE_COMMIT_FACTOR)
             note += " commit"
         goals = _group_goal_tiles(snap, field, key, tile)

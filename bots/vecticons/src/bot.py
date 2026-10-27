@@ -65,7 +65,6 @@ from managers import utility
 
 Team, Item = cambc.Team, cambc.ItemType
 
-
 def _goal_xy(goal) -> str:
     """The goal tile of a candidate as "x,y" (the goal is a tuple of tiles)."""
     try:
@@ -92,6 +91,30 @@ def _best_excluding(candidates, kind: str):
         except Exception:
             continue
     return best
+
+
+def _standing_on_goals(goal, position) -> bool:
+    """Do we already stand on one of the candidate's goal tiles?
+
+    The capture region of a camp group is its spawn tiles, and the
+    engine's capture timer is RESET when the champion steps off them
+    (GameRules "After defeating a camp, make sure to capture!"), so a
+    champion that already stands on one of them must HOLD - it must not
+    be told to walk somewhere else while it waits for the capture to
+    land.
+    """
+    try:
+        tiles = goal if isinstance(goal, (tuple, list)) else (goal,)
+        px = int(position.x)
+        py = int(position.y)
+        for tile in tiles:
+            if tile is None:
+                continue
+            if int(tile.x) == px and int(tile.y) == py:
+                return True
+    except Exception:
+        return False
+    return False
 
 
 class Bot:
@@ -543,16 +566,33 @@ class Bot:
 
             # Capture: stand on the cleared spawn tile for 5 rounds.
             if kind == "capture":
-                if goal is not None and execution.move_towards_goal(
-                    snap, goal, kind="scoring"
-                ):
-                    return
-                # B1: the capture tile is NOT reachable (an enemy stands
-                # on it, or our own champion does): the engine refuses
-                # the move, so the champion would stand still for the
-                # whole match waiting for a capture that cannot land.
-                # Take the next best action instead (the same fallback
-                # the flee branch uses).
+                if goal is not None:
+                    # B1 FIX: we may ALREADY stand on a capture tile. The
+                    # walk reports "no move" in that case (the walk is
+                    # DONE - execution.move_towards_goal returns False when
+                    # the champion stands on a goal tile), but "no move"
+                    # is NOT "blocked": leaving the tile is the one thing
+                    # that must NOT happen, because stepping off a group's
+                    # spawn tile RESETS the engine's five-round capture
+                    # timer (GameRules "After defeating a camp, make sure
+                    # to capture!"). The chunk-4 fallback ("the capture
+                    # move failed, take the next best action") treated that
+                    # False as a blocked move and walked the champion OFF
+                    # the tile every single turn: no capture ever
+                    # completed, so the map banked no gems at all
+                    # (01elk_arena 130 -> 9 camp clears, 01boss_battle
+                    # 38 -> 1). Standing on a goal tile means HOLD (do
+                    # nothing - the capture completes).
+                    if _standing_on_goals(goal, position):
+                        return
+                    if execution.move_towards_goal(snap, goal, kind="scoring"):
+                        return
+                # The capture tile is NOT reachable (an enemy stands on
+                # it, or our own champion does): the engine refuses the
+                # move, so the champion would stand still for the whole
+                # match waiting for a capture that cannot land. Take the
+                # next best action instead (the same fallback the flee
+                # branch uses).
                 alt = _best_excluding(candidates, "capture")
                 if alt is not None:
                     kind, target = alt[0], alt[1]
