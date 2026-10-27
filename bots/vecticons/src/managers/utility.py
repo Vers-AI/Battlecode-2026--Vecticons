@@ -13,12 +13,19 @@ Scoring (all in GEM-EQUIVALENTS, see plan/architecture.md §Core design):
   recall     = (heal_value + gold_value)
                 x TIME_DISCOUNT ** (d_spawn + RECALL_CHANNEL_TURNS)
                 x P(channel survives)
-  fight(e)   = (KILL_REWARD_GOLD x GOLD_TO_GEM + enemy.gem_count())
-                x TIME_DISCOUNT ** turns x P(win)
+  fight(e)   = (bag + kill_gold + denial + capture_reset + tiebreak)
+                x TIME_DISCOUNT ** turns x P(win | our CURRENT health)
+  chase(e)   = the same value x TIME_DISCOUNT ** (path + turns)
+                x P(win) x CHASE_SUCCESS_FACTOR
   flee(e)    = (FLEE_BASE_VALUE + carried x FLEE_CARRIED_WEIGHT)
-                x hp_deficit x threat_falloff
+                x hp_factor x escape_probability
   boss(g)    = (drops + unlock_value) x TIME_DISCOUNT ** (d + turns)
                 x P(survive)
+
+  Every non-combat candidate is multiplied by the THREAT factor
+  (P(survive the action while a hostile champion is on us): farming or
+  banking under attack is worth what we actually collect, which is
+  nothing when we are killed on the way.
 
 `d` is the HONEST distance: one shared per-turn engine DistanceField
 (managers.fielding), roots = our position. A target the field never reaches
@@ -440,6 +447,9 @@ def _capture_candidates(snap, field) -> list:
         if d is None:
             continue  # unreachable: scores 0 by arithmetic
         score = value * (discount ** max(0, d + turns))
+        # B1: a capture we perform while a hostile champion is on us is
+        # worth what we actually collect - nothing if we die first.
+        score *= _threat_factor(snap, d + turns)
         note = f"d={d} v={int(value)}"
         if _standing_on_group(snap, group):
             score *= float(config.CAPTURE_COMMIT_FACTOR)
@@ -566,6 +576,9 @@ def _bank_candidates(snap, field) -> list:
             continue  # unreachable: scores 0 by arithmetic
         raw = base * (discount ** max(0, d + channel))
         score = raw * mod
+        # B1: banking under attack is worth what we bank, not what we
+        # carry - the trip ends when we are dead on it.
+        score *= _threat_factor(snap, d + channel)
         if score <= 0.0:
             continue
         cands.append(
@@ -687,103 +700,368 @@ def _enemy_in_interrupt_range(snap) -> bool:
     return False
 
 
-def _fight_candidates(snap) -> list:
-    """Fight candidates: enemy champions in attack range.
+# ---------------------------------------------------------------------------
+# B1 - the threat picture: who can hurt us, and how much.
+# ---------------------------------------------------------------------------
 
-    The score counts the bag in gem-equivalent units: the killer receives
-    ALL carried gems plus 50 base gold (GameRules "When a champion dies"),
-    so a gem carrier is worth far more than a naked champion. Multiplied by
-    a win probability built from their HP versus our damage and their
-    damage versus our HP.
+
+def _hostile_threat(snap) -> dict:
+    """The per-turn threat picture: the enemies that can hurt us.
+
+    ONE pass over the visible enemy champions per turn; the result is
+    cached on the snapshot, because the fight, chase, flee, farm, bank and
+    capture generators all read it.
+
+    Two radii:
+      CONTACT - the enemy is inside its OWN attack range: it can hit us
+                on its next attack.
+      NEAR    - the enemy is within its attack range plus
+                THREAT_PURSUE_TILES: it is closing, and a champion that
+                keeps farming will be in contact within a turn or two.
+
+    The "recent damage from a champion" signal of the owner's ruling is
+    the HP drop: bot.py records our health from the previous turn, and a
+    drop with an enemy next to us is proof that the enemy is hostile (it
+    may have hit us with an ability from outside its basic range). It is
+    free (one float compare) and it only promotes the NEAR enemies when
+    nothing is already in contact.
     """
-    if not snap.can_attack:
-        return []
-    out = []
+    cached = getattr(snap, "threat_view", None)
+    if cached is not None:
+        return cached
+    view = {
+        "all": [],       # (enemy, dist, damage)
+        "contact": [],   # (enemy, dist, damage) - can hit us NOW
+        "near": [],      # (enemy, dist, damage) - closing
+        "contact_dps": 0.0,
+        "near_dps": 0.0,
+    }
+    px, py = snap.origin_xy
+    pursue = int(config.THREAT_PURSUE_TILES)
     try:
-        attack_tiles = execution.our_attack_tiles(snap)
+        enemies = getattr(snap, "visible_enemies", ()) or ()
     except Exception:
-        return []
-    if attack_tiles is None:
-        return []
-    our_damage = _our_damage(snap)
-    px, py = snap.origin_xy
-    for enemy in getattr(snap, "visible_enemies", ()) or ():
-        try:
-            if not enemy.is_visible():
-                continue
-            enemy_pos = enemy.position()
-            ex = int(enemy_pos.x)
-            ey = int(enemy_pos.y)
-        except Exception:
-            continue
-        if not attack_tiles.is_set(enemy_pos):
-            continue
-        try:
-            enemy_max_hp = float(enemy.max_health())
-        except Exception:
-            enemy_max_hp = 1000.0
-        try:
-            enemy_strength = float(enemy.strength())
-        except Exception:
-            enemy_strength = 20.0
-        try:
-            bag = int(enemy.gem_count())
-        except Exception:
-            bag = 0
-        turns_to_kill = max(1, int((enemy_max_hp + our_damage - 1) // our_damage))
-        incoming = enemy_strength * turns_to_kill
-        win = _survival(incoming, float(snap.max_hp))
-        if win < float(config.FIGHT_WIN_FLOOR):
-            win = float(config.FIGHT_WIN_FLOOR)
-        reward_value = float(config.KILL_REWARD_GOLD) * float(config.GOLD_TO_GEM)
-        score = (reward_value + float(bag)) * (
-            _discount() ** max(0, turns_to_kill)
-        ) * win
-        out.append(["fight", enemy, score, f"bag={bag} t={turns_to_kill}", None])
-    return out
-
-
-def _flee_candidates(snap) -> list:
-    """Flee candidate: weak and an enemy can hit us -> move away first.
-
-    Replaces the old "attack anything in range" reflex: a fight we cannot
-    win is worth less than the ground we give up. The score scales with
-    what we would lose (the carried gems), how hurt we are and how close
-    the threat is. The candidate only exists below FLEE_HP_FRAC, so a
-    healthy champion still takes its fights.
-    """
-    if snap.max_hp <= 0:
-        return []
-    if float(snap.hp) >= float(snap.max_hp) * float(config.FLEE_HP_FRAC):
-        return []
-    deficit = max(0.0, 1.0 - float(snap.hp) / float(snap.max_hp))
-    carried = float(snap.gems)
-    px, py = snap.origin_xy
-    for enemy in getattr(snap, "visible_enemies", ()) or ():
+        enemies = ()
+    for enemy in enemies:
         try:
             if not enemy.is_visible():
                 continue
             pos = enemy.position()
+            ex = int(pos.x)
+            ey = int(pos.y)
             reach = int(enemy.attack_range())
-            dx = int(pos.x) - px
-            dy = int(pos.y) - py
+            try:
+                dmg = float(enemy.strength())
+            except Exception:
+                dmg = 20.0
+            if dmg <= 0.0:
+                dmg = 20.0
+        except Exception:
+            continue
+        dx = ex - px
+        if dx < 0:
+            dx = -dx
+        dy = ey - py
+        if dy < 0:
+            dy = -dy
+        dist = dx if dx > dy else dy
+        entry = (enemy, dist, dmg)
+        view["all"].append(entry)
+        if dist <= reach:
+            view["contact"].append(entry)
+            view["contact_dps"] += dmg
+        elif dist <= reach + pursue:
+            view["near"].append(entry)
+            view["near_dps"] += dmg
+    if (not view["contact"]) and view["near"] and getattr(snap, "hit_recently", False):
+        # We took damage this turn and no enemy is in basic range: the
+        # ones next to us hit us with an ability. Treat them as contact.
+        for entry in view["near"]:
+            view["contact"].append(entry)
+            view["contact_dps"] += entry[2]
+        view["near_dps"] = 0.0
+    try:
+        snap.threat_view = view
+    except Exception:
+        pass
+    return view
+
+
+def _threat_factor(snap, turns) -> float:
+    """P(survive the action) while a hostile champion is on us.
+
+    This is the "never mid-farm-inert" term (the owner's ruling): the
+    score of an action we are PERFORMING while someone is beating on us
+    must be discounted by the chance we survive it, because a champion
+    that farms to its death collects nothing and loses the bag it was
+    carrying. Before this term, the measured behaviour was a bot that
+    kept picking "farm" for round after round while three enemies killed
+    it (00elkring, our replay: 1 kill in 5 maps, 143 gems stolen).
+
+    The survival model is the same geometric one every other candidate
+    uses, but on our CURRENT health: a champion at 20% health must not
+    believe it can farm through a fight.
+    """
+    view = _hostile_threat(snap)
+    contact_dps = float(view["contact_dps"])
+    near_dps = float(view["near_dps"])
+    if contact_dps <= 0.0 and near_dps <= 0.0:
+        return 1.0
+    t = max(1, int(turns))
+    incoming = contact_dps * t + near_dps * min(t, int(config.THREAT_PURSUIT_TURNS))
+    if incoming <= 0.0:
+        return 1.0
+    hp = float(snap.hp)
+    if hp <= 0.0:
+        hp = float(snap.max_hp)
+    if hp <= 0.0:
+        return float(config.DEATH_RISK_BASE)
+    return _survival(incoming, hp)
+
+
+def _fight_candidates(snap, field) -> list:
+    """Fight candidates (enemy in our reach) and chase candidates.
+
+    B1 (owner ruling 2026-10-26): the fight value is the WHOLE economy
+    of the kill, not the flat 50 gold the old candidate scored:
+
+      (a) IMMEDIATE  - the bag: ALL the victim's carried gems (GameRules
+          "When a champion dies": the killer takes them), 1:1 in gem
+          equivalents, plus the kill gold;
+      (b) DENIAL     - a dead champion cannot farm, capture or tribute
+          for the whole respawn window (RESPAWN_ROUNDS). That is their
+          expected production for the window, and it is the compounding
+          half of the game economy;
+      (c) CONTESTED ACCESS - an enemy standing on our cleared camp tiles
+          resets our capture progress;
+      (d) SNOWBALL   - their gold compounds into shards while they are
+          dead and idle (the kill gold of (a) is the immediate part);
+      (e) the kill tiebreak (gems -> gold -> kills).
+
+    The win probability is built on our CURRENT health, not our maximum:
+    a champion at 20% health must not believe it can win the same fight
+    it could at 100%. (The old model used max_health, so a champion being
+    beaten to death still scored its fight as if it were untouched.)
+
+    CHASE (the courier hunt): an enemy that is NOT in our reach but
+    carries a bag is worth walking to, scored with the shared field's
+    honest path distance (S2.3 honest distances: the straight-line proxy
+    lies on the maze maps). An empty enemy far away is not worth the walk
+    - the economy-first architecture stays. The candidate pool is capped
+    (CHASE_MAX_CANDIDATES) and the targets must be VISIBLE (the fuel
+    guard of the S2.3 history: fog candidates are guesses, and a guess
+    that costs a field read per enemy is how the budget dies).
+    """
+    view = _hostile_threat(snap)
+    enemies = view["all"]
+    if not enemies:
+        return []
+    out = []
+    our_damage = _our_damage(snap)
+    if our_damage <= 0.0:
+        return []
+    hp = float(snap.hp)
+    if hp <= 0.0:
+        hp = float(snap.max_hp)
+    discount = _discount()
+    attack_tiles = None
+    if snap.can_attack:
+        try:
+            attack_tiles = execution.our_attack_tiles(snap)
+        except Exception:
+            attack_tiles = None
+    chases = []
+    for enemy, dist, dmg in enemies:
+        try:
+            pos = enemy.position()
+            ex = int(pos.x)
+            ey = int(pos.y)
+            enemy_max_hp = float(enemy.max_health())
+            enemy_hp = float(enemy.health())
+        except Exception:
+            continue
+        target_hp = enemy_hp if enemy_hp > 0.0 else enemy_max_hp
+        if target_hp <= 0.0:
+            continue
+        turns_to_kill = max(1, int((target_hp + our_damage - 1) // our_damage))
+        value = _kill_value(snap, enemy, ex, ey)
+        if value <= 0.0:
+            continue
+        in_range = False
+        if attack_tiles is not None:
+            try:
+                in_range = bool(attack_tiles.is_set(pos))
+            except Exception:
+                in_range = False
+        if in_range:
+            incoming = dmg * turns_to_kill
+            win = _survival(incoming, hp)
+            if win < float(config.FIGHT_WIN_FLOOR):
+                win = float(config.FIGHT_WIN_FLOOR)
+            score = value * (discount ** max(0, turns_to_kill)) * win
+            out_note = f"bag={int(value)} t={turns_to_kill} win={win:.2f}"
+            out.append(["fight", enemy, score, out_note, None])
+            continue
+        # Not in our reach: a CHASE candidate (the courier hunt).
+        try:
+            bag = int(enemy.gem_count())
+        except Exception:
+            bag = 0
+        if bag < int(config.CHASE_MIN_BAG):
+            continue
+        if field is None:
+            continue
+        try:
+            d = field.get(pos)
+        except Exception:
+            continue
+        if d is None:
+            continue
+        d = int(d)
+        if d >= fielding.UNREACHABLE or d > int(config.CHASE_MAX_TURNS):
+            continue
+        total = d + turns_to_kill
+        incoming = dmg * total
+        win = _survival(incoming, hp)
+        if win < float(config.FIGHT_WIN_FLOOR):
+            win = float(config.FIGHT_WIN_FLOOR)
+        score = (
+            value
+            * (discount ** max(0, total))
+            * win
+            * float(config.CHASE_SUCCESS_FACTOR)
+        )
+        chases.append((score, enemy, pos,
+                       f"bag={bag} d={d} t={total} win={win:.2f}"))
+    if chases:
+        chases.sort(key=lambda item: -item[0])
+        cap = int(config.CHASE_MAX_CANDIDATES)
+        for score, enemy, pos, note in chases[:cap]:
+            out.append(["chase", enemy, score, note, (pos,)])
+    return out
+
+
+def _kill_value(snap, enemy, ex, ey) -> float:
+    """The full value of a kill, in gem-equivalents.
+
+    The bag counts 1:1 (a carried gem IS a gem-equivalent), the kill
+    gold is priced at the standard gold rate, and the denial term is the
+    victim's own production for the respawn window (see config for the
+    measurement behind every constant).
+    """
+    value = 0.0
+    try:
+        value += float(enemy.gem_count())
+    except Exception:
+        pass
+    value += float(config.KILL_REWARD_GOLD) * float(config.FIGHT_GOLD_VALUE)
+    value += float(config.FIGHT_DENIAL_VALUE) * _denial_scale(snap)
+    value += _capture_reset_value(snap, ex, ey)
+    value += float(config.FIGHT_TIEBREAK_VALUE)
+    return value
+
+
+def _denial_scale(snap) -> float:
+    """How much of the respawn window is still worth denying.
+
+    A kill in the last rounds of the match denies nothing: the enemy
+    would be back before the match ends. This keeps the term honest at
+    the end of the match instead of paying a full window for a corpse
+    that respawns in time.
+    """
+    try:
+        now = int(getattr(snap, "round_number", 0) or 0)
+    except Exception:
+        now = 0
+    end = int(config.FIGHT_DENIAL_END_ROUNDS)
+    if end <= 0 or now <= 0:
+        return 1.0
+    remaining = end - now
+    if remaining <= 0:
+        return 0.0
+    window = int(config.RESPAWN_ROUNDS) or 60
+    scale = float(remaining) / float(window)
+    if scale > 1.0:
+        scale = 1.0
+    return scale
+
+
+def _capture_reset_value(snap, ex, ey) -> float:
+    """The value of removing an enemy that stands on our capture tiles.
+
+    GameRules capture: admitting an enemy into the capture region resets
+    the five-round capture timer, so an enemy on the tiles of a group we
+    have already cleared destroys the farm cycle we paid for.
+    """
+    groups = getattr(snap, "cleared_groups", None)
+    if not groups:
+        return 0.0
+    tiles = getattr(snap, "group_tile_xy", None) or {}
+    radius = int(config.FIGHT_CAPTURE_RADIUS)
+    for entry in groups:
+        try:
+            key = entry[0]
+        except Exception:
+            continue
+        for tile in tiles.get(key, ()) or ():
+            try:
+                dx = int(tile[0]) - ex
+                dy = int(tile[1]) - ey
+            except Exception:
+                continue
             if dx < 0:
                 dx = -dx
             if dy < 0:
                 dy = -dy
-            distance = dx if dx > dy else dy
-            if distance > reach:
-                continue
+            if (dx if dx > dy else dy) <= radius:
+                return float(config.FIGHT_CAPTURE_RESET_VALUE)
+    return 0.0
+
+
+def _flee_candidates(snap) -> list:
+    """Flee candidate: break contact with a champion that is hitting us.
+
+    B1: the old candidate existed only below FLEE_HP_FRAC and scored about
+    ONE gem-equivalent, so it could never win the argmax - the measured
+    behaviour was a bot that farmed to its death with three enemies on it
+    (00elkring r=1741: fight 5.2 against farm 16.0, flee invisible).
+
+    The score is the value of what we save (the bag we carry plus the
+    ground we give up) scaled by how hurt we are, and the escape is priced
+    by the enemy's reach: a RANGED champion must choose between moving
+    and attacking (GameRules: ranged champions cannot move and
+    basic-attack in the same turn), so a champion that keeps walking
+    breaks contact; a MELEE champion walks and attacks in the same turn
+    and cannot be shaken off.
+    """
+    view = _hostile_threat(snap)
+    contact = view["contact"]
+    if not contact:
+        return []
+    if snap.max_hp <= 0:
+        return []
+    hp_frac = float(snap.hp) / float(snap.max_hp)
+    deficit = max(0.0, 1.0 - hp_frac)
+    carried = float(snap.gems)
+    base = float(config.FLEE_BASE_VALUE) + carried * float(config.FLEE_CARRIED_WEIGHT)
+    floor = float(config.FLEE_HP_FLOOR)
+    hp_factor = floor + (1.0 - floor) * deficit
+    best = None
+    for enemy, dist, dmg in contact:
+        try:
+            reach = int(enemy.attack_range())
         except Exception:
-            continue
-        falloff = float(config.FLEE_THREAT_FALLOFF)
-        threat = 0.5 ** (float(distance) / max(0.1, falloff))
-        score = (
-            float(config.FLEE_BASE_VALUE)
-            + carried * float(config.FLEE_CARRIED_WEIGHT)
-        ) * (deficit ** float(config.FLEE_HP_WEIGHT)) * threat
-        return [["flee", enemy, score, f"weak d={distance}", None]]
-    return []
+            reach = 1
+        if reach > 1:
+            escape = float(config.FLEE_ESCAPE_RANGED)
+        else:
+            escape = float(config.FLEE_ESCAPE_MELEE)
+        score = base * hp_factor * escape
+        if best is None or score > best[0]:
+            best = (score, enemy)
+    if best is None or best[0] <= 0.0:
+        return []
+    return [["flee", best[1], best[0], f"hp={hp_frac:.2f}", None]]
 
 
 # ---------------------------------------------------------------------------
@@ -1214,6 +1492,8 @@ def _boss_candidates(snap, field, best_other: float, clear_map=None) -> list:
             continue  # cannot reach it even with the terrain-only wall set
         total_turns = max(1, int(d) + turns)
         score = value * (discount ** total_turns) * survive
+        # B1: the threat term (a boss clear under attack ends when we do).
+        score *= _threat_factor(snap, total_turns)
         out.append(
             [
                 "boss",
@@ -1499,6 +1779,10 @@ def _farm_candidates(snap, field, clear_map=None) -> list:
             if turns < 1:
                 turns = 1
             score = row[5] * (discount ** turns) * ci[1] * risk.get(row[9], 1.0)
+            # B1: the threat term - farming while a hostile champion is on
+            # us is worth what we collect, and we collect nothing if we
+            # are killed on the way to the camp.
+            score *= _threat_factor(snap, turns)
             if score <= 0.0:
                 continue
             scored.append((-score, index, row, d, turns, goal))
@@ -1617,8 +1901,12 @@ def generate_candidates(snap) -> list[Candidate]:
         ("capture", lambda: _capture_candidates(snap, field)),
         ("bank", lambda: _bank_candidates(snap, field)),
         ("recall", lambda: _recall_candidates(snap, field)),
-        ("fight", lambda: _fight_candidates(snap)),
+        # B1: the flee candidate comes BEFORE the fight candidate so that
+        # a tie is broken towards breaking contact - a fight we cannot
+        # win is the same score as an escape, and the escape is the one
+        # that leaves us alive.
         ("flee", lambda: _flee_candidates(snap)),
+        ("fight", lambda: _fight_candidates(snap, field)),
     ):
         try:
             out.extend(fn())

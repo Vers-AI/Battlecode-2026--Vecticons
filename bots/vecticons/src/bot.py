@@ -101,6 +101,9 @@ class Bot:
         # own process with its own Bot instance, so this is a per-champion
         # fact, not shared state.
         self.claimed_groups = {}
+        # B1: our health from the previous turn - the "we were hit" signal
+        # that turns a nearby enemy into a confirmed threat.
+        self.last_hp = None
         # S2.4: rate limit for the shopping evidence prints (a regular
         # print, so it survives --release).
         self.shop_logs = 0
@@ -418,6 +421,20 @@ class Bot:
         # to stash them on this turn (the fuel contract: no second scan
         # over the group table).
         snap.want_ward = self.ward_cd <= 0
+        # B1: the "recent damage from a champion" signal of the owner's
+        # ruling. Our own HP going down since the previous turn is proof
+        # that something hostile hit us - with an enemy next to us, that
+        # is the enemy (a champion may have hit us with an ability from
+        # outside its basic range). The utility layer promotes those
+        # enemies to "contact" so the argmax weighs fighting or fleeing
+        # instead of farming on.
+        try:
+            hp_now = float(snap.hp)
+            if self.last_hp is not None and hp_now < float(self.last_hp) - 0.5:
+                snap.hit_recently = True
+            self.last_hp = hp_now
+        except Exception:
+            pass
         candidates = utility.generate_candidates(snap)
 
         # S2.4: the shopping decision is scored in the argmax (utility).
@@ -565,6 +582,36 @@ class Bot:
                         return
                 except Exception:
                     pass
+
+            # Chase (B1 courier hunt): a loaded enemy that is not in our
+            # reach yet. We close the distance with the shared field's
+            # gradient (the goal tile is the enemy's CURRENT tile) and
+            # strike as soon as it is in range. A ranged champion spends
+            # the walk without attacking (GameRules: movement and attack
+            # share the allowance) - the chase score already prices the
+            # extra turns into the kill time.
+            if kind == "chase" and target is not None:
+                try:
+                    if snap.can_attack:
+                        atk = execution.our_attack_tiles(snap)
+                        if atk is not None and atk.is_set(target.position()):
+                            me.attack(target)
+                            return
+                except Exception:
+                    pass
+                if goal is not None and execution.move_towards_goal(
+                    snap, goal, kind="scoring"
+                ):
+                    return
+                # No step available: fall back to the opportunistic
+                # behaviour (attack whatever is in reach) rather than
+                # standing still.
+                try:
+                    if execution.attack_first_in_range(snap.visible_camps, snap):
+                        return
+                except Exception:
+                    pass
+                return
 
             # Boss (S2.3 boss graduation): the excluded groups are scored
             # fight candidates. Walk to the group's tiles and strike its

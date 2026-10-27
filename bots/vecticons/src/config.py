@@ -347,6 +347,72 @@ BANK_CONTEST_PENALTY: float = 0.5   # PLACEHOLDER. ~7 tiles of TIME_DISCOUNT dis
 #   intact everywhere (no hoard: collected==submitted).
 REGION_RISK_FACTOR: float = 0.85   # PLACEHOLDER. ^count; ~2 discount tiles per sighting.
 
+# ---------------------------------------------------------------------------
+# B1 - enemy-dominance economics (the fight-back / courier-hunt model).
+# ---------------------------------------------------------------------------
+# Owner ruling 2026-10-26 (plan/tasks.md B1): a kill is worth far more
+# than the flat 50 gold the old fight candidate scored, because the killer
+# takes ALL the victim's carried gems AND the dead champion cannot farm,
+# capture or tribute for the whole respawn window.
+#
+# The values below are GEM-EQUIVALENTS, the same unit as every other
+# candidate score (the utility layer's contract).
+#
+# (a) IMMEDIATE - the bag (the victim's carried gems, counted 1:1) plus
+#     the kill gold. The gold is priced at the same rate as every other
+#     gold (GOLD_TO_GEM: 50 gold buys one gem-equivalent of shard stats).
+FIGHT_GOLD_VALUE: float = 0.02
+# (b) DENIAL - a dead champion cannot farm, capture or tribute for
+#     RESPAWN_ROUNDS (60). Measured on our own record: the bot banks
+#     ~1,000 gems over a 2,000-round match with five champions, i.e.
+#     ~200 gems per champion, so one champion's 60-round respawn window
+#     is worth ~6 gems of foregone production. 8.0 is that figure with a
+#     small margin (the dead champion also stops compounding gold into
+#     shards, and their claim memory expires).
+FIGHT_DENIAL_VALUE: float = 8.0
+# (c) CONTESTED ACCESS - an enemy standing on our cleared camp tiles
+#     resets the engine's five-round capture timer (GameRules capture
+#     rules), so removing it protects the farm cycle we already paid for.
+FIGHT_CAPTURE_RESET_VALUE: float = 3.0
+# Chebyshev radius around our capture tiles in which an enemy threatens
+# the capture.
+FIGHT_CAPTURE_RADIUS: int = 2
+# (d)+(e) SNOWBALL and the kill tiebreak (gems -> gold -> kills). Small,
+# but a kill is also a tiebreak point once the gem and gold scores are
+# level.
+FIGHT_TIEBREAK_VALUE: float = 1.0
+# The denial value is scaled down when the match is nearly over: a kill in
+# the last few rounds denies nothing (the window is truncated by the end
+# of the match).
+FIGHT_DENIAL_END_ROUNDS: int = 2000
+# Chase (courier hunt): a loaded enemy is worth walking to. The enemy's
+# bag must clear the bar, the walk must be short, and the candidate pool
+# is capped (the S2.3 fuel history: candidate floods burn the budget).
+CHASE_MIN_BAG: int = 8           # gems the target must carry
+CHASE_MAX_TURNS: int = 12        # path turns we are willing to spend
+CHASE_MAX_CANDIDATES: int = 3
+# The target may keep moving, so the chase is not certain to land.
+CHASE_SUCCESS_FACTOR: float = 0.6
+# Threat term (the "never mid-farm-inert" rule). A hostile champion within
+# THREAT_PURSUE_TILES of its own attack range is priced as incoming
+# damage on the action we are scoring: farming or banking while someone
+# is hitting us is worth what we actually collect, which is nothing if we
+# die on the way.
+THREAT_PURSUE_TILES: int = 2     # tiles beyond their attack range
+THREAT_PURSUIT_TURNS: int = 3    # rounds a closing enemy is priced for
+# Flee (S2.3, re-scaled by B1): the old score was ~1 gem-equivalent, so
+# the escape could never win the argmax and the bot farmed to its death.
+# The score is the value of what we save, scaled by how hurt we are.
+FLEE_BASE_VALUE: float = 6.0     # the ground we give up (about one camp)
+FLEE_HP_FLOOR: float = 0.4       # the score multiplier at full health
+# Escape probability by the enemy's reach: a RANGED champion must choose
+# between moving and attacking (GameRules: ranged champions cannot move
+# and basic-attack in the same turn), so a champion that keeps walking
+# breaks contact; a MELEE champion walks and attacks in the same turn and
+# cannot be shaken off.
+FLEE_ESCAPE_RANGED: float = 1.0
+FLEE_ESCAPE_MELEE: float = 0.4
+
 MONOLITH_HP: int = 20_000         # GameRules camp table (Monolith total HP).
 
 # Per-champion stat priority used when shopping on spawn tiles.

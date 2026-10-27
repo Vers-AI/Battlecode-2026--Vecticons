@@ -253,6 +253,18 @@ class Snapshot:
     # champion stands on its tile, so the "farm" candidate outscored every
     # other action and the bot farmed a dead group for 1,900 rounds).
     claimed_groups: tuple = ()
+    # B1: our health DROPPED since the previous turn - proof that
+    # something hostile hit us. With an enemy champion next to us, that
+    # enemy is the hostile one (a champion can hit us with an ability
+    # from outside its basic range), so the utility layer promotes it
+    # from "closing" to "contact" and the argmax weighs fighting or
+    # fleeing instead of farming on (the owner's ruling).
+    hit_recently: bool = False
+    # B1: the per-turn threat view (who can hurt us, and how much). It is
+    # built ONCE per turn by the utility layer and cached here, because
+    # the fight, chase, flee, farm, bank and capture generators all read
+    # it (the S2.3 fuel contract: one pass, cached facts).
+    threat_view: Any = None
     # The round number of this turn (one engine read per turn; the S2.3
     # claim memory needs it to expire a claim when the group respawns).
     round_number: int = 0
