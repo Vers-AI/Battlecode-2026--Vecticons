@@ -75,6 +75,25 @@ def _goal_xy(goal) -> str:
         return "?"
 
 
+def _best_excluding(candidates, kind: str):
+    """The best candidate whose kind is not `kind` (or None).
+
+    Used by the B1 flee fallback: when the escape step cannot be taken
+    (we are cornered), the champion must take the next best action
+    instead of standing still and being killed.
+    """
+    best = None
+    for cand in candidates or ():
+        try:
+            if cand[0] == kind:
+                continue
+            if best is None or cand[2] > best[2]:
+                best = cand
+        except Exception:
+            continue
+    return best
+
+
 class Bot:
     # main.py uses this marker to opt the shared draft manager into the
     # S2.3 format.  A frozen baseline module has no marker and therefore
@@ -571,6 +590,19 @@ class Bot:
                 except Exception:
                     pos = None
                 if execution.move_away_from(pos):
+                    return
+                # B1: the escape step FAILED - we are cornered (the probe
+                # found a champion that stood on its spawn tile for 800
+                # rounds while a ranged enemy chipped it to death, because
+                # every step away was blocked). Standing still is the
+                # worst option: take the next best candidate instead
+                # (usually the fight), so a cornered champion trades
+                # blows instead of dying passively.
+                alt = _best_excluding(candidates, "flee")
+                if alt is not None:
+                    kind, target = alt[0], alt[1]
+                    goal = alt[4] if len(alt) > 4 else None
+                else:
                     return
 
             # Fight: enemy in attack range.

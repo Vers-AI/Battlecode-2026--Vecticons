@@ -363,13 +363,17 @@ REGION_RISK_FACTOR: float = 0.85   # PLACEHOLDER. ^count; ~2 discount tiles per 
 #     gold (GOLD_TO_GEM: 50 gold buys one gem-equivalent of shard stats).
 FIGHT_GOLD_VALUE: float = 0.02
 # (b) DENIAL - a dead champion cannot farm, capture or tribute for
-#     RESPAWN_ROUNDS (60). Measured on our own record: the bot banks
-#     ~1,000 gems over a 2,000-round match with five champions, i.e.
-#     ~200 gems per champion, so one champion's 60-round respawn window
-#     is worth ~6 gems of foregone production. 8.0 is that figure with a
-#     small margin (the dead champion also stops compounding gold into
-#     shards, and their claim memory expires).
-FIGHT_DENIAL_VALUE: float = 8.0
+#     RESPAWN_ROUNDS (60). Measured on our own record (S2.4 campaign,
+#     records/s24-campaign): the team tributes ~470 gems per map with
+#     five champions over 2,000 rounds, i.e. ~94 gems per champion, so
+#     one champion's 60-round respawn window is worth ~3 gems of
+#     foregone production. 4.0 is that figure plus the threat denial
+#     (a dead champion does not contest our camps or steal our gems
+#     for the window). The first cut used 8.0, which was measured
+#     against the OLD team production (1,000 gems per match) and made
+#     every kill look like a windfall - the probe showed the bot then
+#     chasing kills it could not win.
+FIGHT_DENIAL_VALUE: float = 4.0
 # (c) CONTESTED ACCESS - an enemy standing on our cleared camp tiles
 #     resets the engine's five-round capture timer (GameRules capture
 #     rules), so removing it protects the farm cycle we already paid for.
@@ -385,6 +389,27 @@ FIGHT_TIEBREAK_VALUE: float = 1.0
 # the last few rounds denies nothing (the window is truncated by the end
 # of the match).
 FIGHT_DENIAL_END_ROUNDS: int = 2000
+# What OUR death costs, in gem-equivalents: the bag we carry (we lose it
+# on death) plus the respawn window (we produce nothing while we are dead).
+# The production half is ~3 gems (see FIGHT_DENIAL_VALUE); 10.0 adds the
+# tempo and the map presence we lose while we are out. This is the stake
+# that makes a bad fight lose to a good escape.
+FIGHT_DEATH_COST: float = 10.0
+# P(win) for a champion fight. The model is a logistic on the ratio
+# (expected incoming damage over the fight / our CURRENT health):
+#   ratio = incoming / our_hp
+#   P(win) = 1 / (1 + exp(-K * (ratio - CENTER)))
+# The centre is the break-even ratio (we must survive with a little
+# margin) and K is how sharp the trade-off is. The S2.3 model
+# (DEATH_RISK_BASE ** ratio) was far too harsh: it priced a fight we win
+# with half our health left at 22% (the probe: "win=0.15" on almost every
+# contact round, which is why the bot never fought).
+FIGHT_WIN_RATIO_CENTER: float = 0.9
+FIGHT_WIN_LOGISTIC_K: float = 8.0
+# The floor of the fight win probability. It is deliberately tiny: the
+# EV comparison (gain x P - stake x (1-P)) is what decides, and a floor
+# of 0.15 made hopeless fights look attractive.
+FIGHT_WIN_FLOOR: float = 0.02
 # Chase (courier hunt): a loaded enemy is worth walking to. The enemy's
 # bag must clear the bar, the walk must be short, and the candidate pool
 # is capped (the S2.3 fuel history: candidate floods burn the budget).
@@ -393,6 +418,9 @@ CHASE_MAX_TURNS: int = 12        # path turns we are willing to spend
 CHASE_MAX_CANDIDATES: int = 3
 # The target may keep moving, so the chase is not certain to land.
 CHASE_SUCCESS_FACTOR: float = 0.6
+# The share of our stake we put at risk while walking to a courier: a
+# chase can be abandoned, so it is cheaper than a fight.
+CHASE_STAKE_SHARE: float = 0.3
 # Threat term (the "never mid-farm-inert" rule). A hostile champion within
 # THREAT_PURSUE_TILES of its own attack range is priced as incoming
 # damage on the action we are scoring: farming or banking while someone
@@ -400,18 +428,25 @@ CHASE_SUCCESS_FACTOR: float = 0.6
 # die on the way.
 THREAT_PURSUE_TILES: int = 2     # tiles beyond their attack range
 THREAT_PURSUIT_TURNS: int = 3    # rounds a closing enemy is priced for
-# Flee (S2.3, re-scaled by B1): the old score was ~1 gem-equivalent, so
-# the escape could never win the argmax and the bot farmed to its death.
-# The score is the value of what we save, scaled by how hurt we are.
-FLEE_BASE_VALUE: float = 6.0     # the ground we give up (about one camp)
+# Flee (S2.3, re-scaled by B1 and then re-based on the probe). The old
+# score was ~1 gem-equivalent, so the escape could never win the argmax;
+# the first B1 cut scored 6-17 (the carried bag was ADDED to it), so the
+# escape won EVERY contact round - 278 of 281 on 00gemfight - and the
+# bot ran from fights it was winning. The score is now an expected-value
+# swing: what we keep if we break contact, minus what we lose if we do
+# not (the bag we carry plus the respawn window).
+FLEE_BASE_VALUE: float = 4.0     # the ground we give up (about one camp)
 FLEE_HP_FLOOR: float = 0.4       # the score multiplier at full health
 # Escape probability by the enemy's reach: a RANGED champion must choose
 # between moving and attacking (GameRules: ranged champions cannot move
 # and basic-attack in the same turn), so a champion that keeps walking
 # breaks contact; a MELEE champion walks and attacks in the same turn and
-# cannot be shaken off.
-FLEE_ESCAPE_RANGED: float = 1.0
-FLEE_ESCAPE_MELEE: float = 0.4
+# cannot be shaken off. The probe showed the escape is not free: a
+# champion that walks into a corner is stuck (00gemfight: a champion
+# stood on its spawn tile for 800 rounds while a ranged enemy chipped
+# it), so neither probability is 1.0.
+FLEE_ESCAPE_RANGED: float = 0.8
+FLEE_ESCAPE_MELEE: float = 0.3
 
 MONOLITH_HP: int = 20_000         # GameRules camp table (Monolith total HP).
 

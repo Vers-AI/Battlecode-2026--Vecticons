@@ -449,7 +449,7 @@ def _capture_candidates(snap, field) -> list:
         score = value * (discount ** max(0, d + turns))
         # B1: a capture we perform while a hostile champion is on us is
         # worth what we actually collect - nothing if we die first.
-        score *= _threat_factor(snap, d + turns)
+        score = _threat_adjust(snap, d + turns, score)
         note = f"d={d} v={int(value)}"
         if _standing_on_group(snap, group):
             score *= float(config.CAPTURE_COMMIT_FACTOR)
@@ -578,7 +578,7 @@ def _bank_candidates(snap, field) -> list:
         score = raw * mod
         # B1: banking under attack is worth what we bank, not what we
         # carry - the trip ends when we are dead on it.
-        score *= _threat_factor(snap, d + channel)
+        score = _threat_adjust(snap, d + channel, score)
         if score <= 0.0:
             continue
         cands.append(
@@ -819,6 +819,131 @@ def _threat_factor(snap, turns) -> float:
     return _survival(incoming, hp)
 
 
+def _our_reach(snap) -> int:
+    """Our own basic-attack range (1 for melee, 3 for ranged)."""
+    try:
+        return int(snap.me.attack_range())
+    except Exception:
+        return 1
+
+
+def _our_stake(snap) -> float:
+    """What our death costs us, in gem-equivalents.
+
+    The bag we carry (a champion that dies loses every carried gem - the
+    killer takes them) plus the respawn window (we produce nothing while
+    we are dead). This is the stake in every trade: it is what makes a
+    bad fight lose to a good escape.
+    """
+    try:
+        carried = float(snap.gems)
+    except Exception:
+        carried = 0.0
+    return carried + float(config.FIGHT_DEATH_COST)
+
+
+def _fight_win(ratio: float) -> float:
+    """P(we win the fight) from the damage we take to the damage we give.
+
+    The ratio is (expected incoming damage over the fight) / (our CURRENT
+    health). A ratio of 1.0 means we die about when they do. The logistic
+    is centred at FIGHT_WIN_RATIO_CENTER (we must survive with a little
+    margin) and scaled by FIGHT_WIN_LOGISTIC_K.
+
+    The S2.3 model (DEATH_RISK_BASE ** ratio) was far too harsh: it
+    priced a fight we win with half our health left at 22%, and the probe
+    showed "win=0.15" (the floor) on almost every contact round - the
+    fight candidate never beat the escape, and the bot never fought back.
+    """
+    k = float(config.FIGHT_WIN_LOGISTIC_K)
+    center = float(config.FIGHT_WIN_RATIO_CENTER)
+    try:
+        z = k * (float(ratio) - center)
+        if z >= 40.0:
+            p = 0.0
+        elif z <= -40.0:
+            p = 1.0
+        else:
+            # NOTE the sign: the ratio is the damage we TAKE over our own
+            # health, so a BIGGER ratio must mean a SMALLER chance to win.
+            p = 1.0 / (1.0 + math.exp(z))
+    except Exception:
+        p = 0.5
+    floor = float(config.FIGHT_WIN_FLOOR)
+    if p < floor:
+        p = floor
+    if p > 0.95:
+        p = 0.95
+    return p
+
+
+def _fight_window(snap, enemy, dist, dmg, our_damage):
+    """How long the fight lasts and how much damage we take in it.
+
+    The window is not symmetric: a MELEE champion walks and attacks in
+    the same turn (GameRules), so it can hit us while it closes, while a
+    RANGED champion must choose between moving and attacking - it cannot
+    hit us on the turns it walks. A melee champion of ours has to spend
+    turns closing before it can hit back at all.
+    """
+    our_reach = _our_reach(snap)
+    try:
+        their_reach = int(enemy.attack_range())
+    except Exception:
+        their_reach = 1
+    try:
+        their_hp = float(enemy.health())
+        if their_hp <= 0.0:
+            their_hp = float(enemy.max_health())
+    except Exception:
+        their_hp = 0.0
+    if their_hp <= 0.0:
+        return None
+    our_close = dist - our_reach
+    if our_close < 0:
+        our_close = 0
+    their_close = dist - their_reach
+    if their_close < 0:
+        their_close = 0
+    hits = int(math.ceil(their_hp / max(1.0, our_damage)))
+    kill_turns = our_close + hits
+    damage_turns = hits
+    if their_close > 0 and their_reach <= 1:
+        # a melee champion attacks on its way in (every other turn)
+        damage_turns += their_close // 2
+    return {
+        "hits": hits,
+        "kill_turns": kill_turns,
+        "incoming": dmg * damage_turns,
+    }
+
+
+def _threat_adjust(snap, turns, gross: float) -> float:
+    """The EV of an action performed while a hostile champion is on us.
+
+    The "never mid-farm-inert" term (the owner's ruling): the score of an
+    action we are PERFORMING while someone is beating on us must be
+    discounted by the chance we survive it, because a champion that farms
+    to its death collects nothing and loses the bag it was carrying.
+    Before this term, the measured behaviour was a bot that kept picking
+    "farm" for round after round while three enemies killed it
+    (00elkring, our replay: 1 kill in 5 maps, 143 gems stolen).
+
+    The form is the same expected-value swing the fight and flee
+    candidates use:
+
+        EV = gross x P(survive) - (1 - P(survive)) x our stake
+
+    so a farm under a beating is worth what we actually collect (nothing
+    if we die on the way) MINUS what we lose when we die (the bag we
+    carry plus the respawn window).
+    """
+    p = _threat_factor(snap, turns)
+    if p >= 1.0:
+        return gross
+    return gross * p - (1.0 - p) * _our_stake(snap)
+
+
 def _fight_candidates(snap, field) -> list:
     """Fight candidates (enemy in our reach) and chase candidates.
 
@@ -838,10 +963,21 @@ def _fight_candidates(snap, field) -> list:
           dead and idle (the kill gold of (a) is the immediate part);
       (e) the kill tiebreak (gems -> gold -> kills).
 
-    The win probability is built on our CURRENT health, not our maximum:
-    a champion at 20% health must not believe it can win the same fight
-    it could at 100%. (The old model used max_health, so a champion being
-    beaten to death still scored its fight as if it were untouched.)
+    The score is an EXPECTED-VALUE SWING, not a gross:
+
+      score = P(win) x (the kill value, discounted by the fight length)
+              - (1 - P(win)) x (what our death costs us)
+
+    The old model scored only the gain and multiplied it by a win
+    probability built from our MAX health, so a champion being beaten to
+    death still believed it could win, and a champion that was winning
+    still scored its fight at the 0.15 floor. The probe on 00gemfight
+    measured the consequence: 281 contact rounds, 278 of them answered
+    with "flee", 2 with "fight", and 0 damage ever landed on an enemy.
+
+    The win probability uses our CURRENT health and the enemy's CURRENT
+    health, and the incoming damage is priced over the real fight window
+    (see _fight_window).
 
     CHASE (the courier hunt): an enemy that is NOT in our reach but
     carries a bag is worth walking to, scored with the shared field's
@@ -864,6 +1000,7 @@ def _fight_candidates(snap, field) -> list:
     if hp <= 0.0:
         hp = float(snap.max_hp)
     discount = _discount()
+    stake = _our_stake(snap)
     attack_tiles = None
     if snap.can_attack:
         try:
@@ -876,14 +1013,11 @@ def _fight_candidates(snap, field) -> list:
             pos = enemy.position()
             ex = int(pos.x)
             ey = int(pos.y)
-            enemy_max_hp = float(enemy.max_health())
-            enemy_hp = float(enemy.health())
         except Exception:
             continue
-        target_hp = enemy_hp if enemy_hp > 0.0 else enemy_max_hp
-        if target_hp <= 0.0:
+        window = _fight_window(snap, enemy, dist, dmg, our_damage)
+        if window is None:
             continue
-        turns_to_kill = max(1, int((target_hp + our_damage - 1) // our_damage))
         value = _kill_value(snap, enemy, ex, ey)
         if value <= 0.0:
             continue
@@ -894,13 +1028,13 @@ def _fight_candidates(snap, field) -> list:
             except Exception:
                 in_range = False
         if in_range:
-            incoming = dmg * turns_to_kill
-            win = _survival(incoming, hp)
-            if win < float(config.FIGHT_WIN_FLOOR):
-                win = float(config.FIGHT_WIN_FLOOR)
-            score = value * (discount ** max(0, turns_to_kill)) * win
-            out_note = f"bag={int(value)} t={turns_to_kill} win={win:.2f}"
-            out.append(["fight", enemy, score, out_note, None])
+            ratio = window["incoming"] / hp if hp > 0.0 else 9.9
+            win = _fight_win(ratio)
+            gain = value * (discount ** max(0, window["kill_turns"]))
+            score = win * gain - (1.0 - win) * stake
+            note = (f"bag={int(value)} t={window['kill_turns']} "
+                    f"r={ratio:.2f} win={win:.2f} ev={score:.1f}")
+            out.append(["fight", enemy, score, note, None])
             continue
         # Not in our reach: a CHASE candidate (the courier hunt).
         try:
@@ -920,19 +1054,14 @@ def _fight_candidates(snap, field) -> list:
         d = int(d)
         if d >= fielding.UNREACHABLE or d > int(config.CHASE_MAX_TURNS):
             continue
-        total = d + turns_to_kill
-        incoming = dmg * total
-        win = _survival(incoming, hp)
-        if win < float(config.FIGHT_WIN_FLOOR):
-            win = float(config.FIGHT_WIN_FLOOR)
-        score = (
-            value
-            * (discount ** max(0, total))
-            * win
-            * float(config.CHASE_SUCCESS_FACTOR)
-        )
+        total = d + window["kill_turns"]
+        ratio = window["incoming"] / hp if hp > 0.0 else 9.9
+        win = _fight_win(ratio)
+        gain = value * (discount ** max(0, total))
+        score = (win * gain * float(config.CHASE_SUCCESS_FACTOR)
+                 - (1.0 - win) * stake * float(config.CHASE_STAKE_SHARE))
         chases.append((score, enemy, pos,
-                       f"bag={bag} d={d} t={total} win={win:.2f}"))
+                       f"bag={bag} d={d} t={total} win={win:.2f} ev={score:.1f}"))
     if chases:
         chases.sort(key=lambda item: -item[0])
         cap = int(config.CHASE_MAX_CANDIDATES)
@@ -1021,31 +1150,28 @@ def _capture_reset_value(snap, ex, ey) -> float:
 def _flee_candidates(snap) -> list:
     """Flee candidate: break contact with a champion that is hitting us.
 
-    B1: the old candidate existed only below FLEE_HP_FRAC and scored about
-    ONE gem-equivalent, so it could never win the argmax - the measured
-    behaviour was a bot that farmed to its death with three enemies on it
-    (00elkring r=1741: fight 5.2 against farm 16.0, flee invisible).
+    B1: the score is an EXPECTED-VALUE SWING, like the fight candidate:
 
-    The score is the value of what we save (the bag we carry plus the
-    ground we give up) scaled by how hurt we are, and the escape is priced
-    by the enemy's reach: a RANGED champion must choose between moving
-    and attacking (GameRules: ranged champions cannot move and
-    basic-attack in the same turn), so a champion that keeps walking
-    breaks contact; a MELEE champion walks and attacks in the same turn
-    and cannot be shaken off.
+      score = P(escape) x (the ground we save)
+              - (1 - P(escape)) x (what our death costs us)
+
+    The first B1 cut scored the escape as (base + carried bag) x hp factor,
+    which made it win EVERY contact round (the probe: 278 escapes against
+    2 fights on 00gemfight) - the bot ran from fights it was winning and
+    stood still while a ranged enemy chipped it to death. Carrying gems is
+    a reason to escape, not a reason to score the escape above a good
+    fight: the bag is already priced as part of our stake.
+
+    The escape probability depends on the enemy's reach: a RANGED champion
+    must choose between moving and attacking (GameRules), so a champion
+    that keeps walking breaks contact; a MELEE champion walks and attacks
+    in the same turn and cannot be shaken off.
     """
     view = _hostile_threat(snap)
     contact = view["contact"]
     if not contact:
         return []
-    if snap.max_hp <= 0:
-        return []
-    hp_frac = float(snap.hp) / float(snap.max_hp)
-    deficit = max(0.0, 1.0 - hp_frac)
-    carried = float(snap.gems)
-    base = float(config.FLEE_BASE_VALUE) + carried * float(config.FLEE_CARRIED_WEIGHT)
-    floor = float(config.FLEE_HP_FLOOR)
-    hp_factor = floor + (1.0 - floor) * deficit
+    stake = _our_stake(snap)
     best = None
     for enemy, dist, dmg in contact:
         try:
@@ -1056,12 +1182,16 @@ def _flee_candidates(snap) -> list:
             escape = float(config.FLEE_ESCAPE_RANGED)
         else:
             escape = float(config.FLEE_ESCAPE_MELEE)
-        score = base * hp_factor * escape
+        # A melee champion that is already adjacent cannot be shaken: it
+        # walks and attacks in the same turn.
+        if reach <= 1 and dist <= 1:
+            escape *= 0.5
+        score = escape * float(config.FLEE_BASE_VALUE) - (1.0 - escape) * stake
         if best is None or score > best[0]:
             best = (score, enemy)
     if best is None or best[0] <= 0.0:
         return []
-    return [["flee", best[1], best[0], f"hp={hp_frac:.2f}", None]]
+    return [["flee", best[1], best[0], f"ev={best[0]:.1f}", None]]
 
 
 # ---------------------------------------------------------------------------
@@ -1493,7 +1623,7 @@ def _boss_candidates(snap, field, best_other: float, clear_map=None) -> list:
         total_turns = max(1, int(d) + turns)
         score = value * (discount ** total_turns) * survive
         # B1: the threat term (a boss clear under attack ends when we do).
-        score *= _threat_factor(snap, total_turns)
+        score = _threat_adjust(snap, total_turns, score)
         out.append(
             [
                 "boss",
@@ -1782,7 +1912,7 @@ def _farm_candidates(snap, field, clear_map=None) -> list:
             # B1: the threat term - farming while a hostile champion is on
             # us is worth what we collect, and we collect nothing if we
             # are killed on the way to the camp.
-            score *= _threat_factor(snap, turns)
+            score = _threat_adjust(snap, turns, score)
             if score <= 0.0:
                 continue
             scored.append((-score, index, row, d, turns, goal))
@@ -1901,12 +2031,13 @@ def generate_candidates(snap) -> list[Candidate]:
         ("capture", lambda: _capture_candidates(snap, field)),
         ("bank", lambda: _bank_candidates(snap, field)),
         ("recall", lambda: _recall_candidates(snap, field)),
-        # B1: the flee candidate comes BEFORE the fight candidate so that
-        # a tie is broken towards breaking contact - a fight we cannot
-        # win is the same score as an escape, and the escape is the one
-        # that leaves us alive.
-        ("flee", lambda: _flee_candidates(snap)),
+        # B1: the FIGHT candidate comes BEFORE the flee candidate, so a
+        # tie is broken towards trading blows. The first B1 cut ordered
+        # them the other way and the escape won every contact round
+        # (the probe: 278 escapes vs 2 fights on 00gemfight) - a fight
+        # we are winning is worth more than the ground we would give up.
         ("fight", lambda: _fight_candidates(snap, field)),
+        ("flee", lambda: _flee_candidates(snap)),
     ):
         try:
             out.extend(fn())
