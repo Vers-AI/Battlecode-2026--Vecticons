@@ -1,0 +1,14 @@
+== dominance-v1: 55-15 | gems 38703 | fuel 22230 | faults 0 | kills 508 (opp 207)
+-- vs p4-pool70: 39-31 / 31036 gems / fuel 5922
+   record  PASS (55 vs 39)
+   gems    PASS (38703 vs 31036, +7667)
+   fuel    FAIL (22230 vs 5922, +16308)
+-- vs s24-verify: 46-24 / 32876 gems / fuel 11093
+   record  PASS (55 vs 46)
+   gems    PASS (38703 vs 32876, +5827)
+   fuel    FAIL (22230 vs 11093, +11137)
+-- faults  PASS (0)
+-- 01yellow_brick_road: PASS (W 259 gems, opp 87, camps 25, deaths 29, kills 0, fuel 1229)
+-- 01elk_arena: PASS (W 72 gems, opp 0, camps 129, deaths 21, kills 1, fuel 68)
+-- 00elkring: kills 14 (double digits: PASS), gems 1034, opp 491, deaths 68
+-- 00gemfight: kills 1 (double digits: FAIL), gems 25, opp 1016, deaths 19
