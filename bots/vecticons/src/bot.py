@@ -135,6 +135,12 @@ class Bot:
         # one, so the mirror is exact: we buy it (flag on) and place it
         # (flag off). A respawn re-syncs it from the engine.
         self.lock_carried = False
+        # B1: the capture HOLD - group handle -> the round we started
+        # holding that group's capture. A capture that does not complete
+        # is blocked (an enemy on one of the group's spawn tiles delays
+        # the whole group), so the hold times out and the champion goes
+        # back to farming. Per champion, like the claim memory above.
+        self.capture_hold = {}
 
     def buy_items(self, champion_short_name: str, count: int = 1) -> bool:
         """Buy our emblem-family shard (ONE buyer, ONE mapping).
@@ -537,9 +543,22 @@ class Bot:
 
             # Capture: stand on the cleared spawn tile for 5 rounds.
             if kind == "capture":
-                if goal is not None:
-                    execution.move_towards_goal(snap, goal, kind="scoring")
-                return
+                if goal is not None and execution.move_towards_goal(
+                    snap, goal, kind="scoring"
+                ):
+                    return
+                # B1: the capture tile is NOT reachable (an enemy stands
+                # on it, or our own champion does): the engine refuses
+                # the move, so the champion would stand still for the
+                # whole match waiting for a capture that cannot land.
+                # Take the next best action instead (the same fallback
+                # the flee branch uses).
+                alt = _best_excluding(candidates, "capture")
+                if alt is not None:
+                    kind, target = alt[0], alt[1]
+                    goal = alt[4] if len(alt) > 4 else None
+                else:
+                    return
 
             # Bank: try to submit at this altar; if not in range, walk toward
             # this altar's approach tiles (S2.2: the chosen altar, not the

@@ -303,6 +303,19 @@ S23_TRACE_ROUNDS: int = 40
 # engine's five-round capture timer (GameRules "After defeating a camp"), so
 # a capture we have already started outranks the alternatives.
 CAPTURE_COMMIT_FACTOR: float = 2.0
+# B1: the capture HOLD - how many rounds a champion may hold a capture
+# that does not complete, and how close it must be for the hold to run.
+# The engine delays a WHOLE group while any of its spawn tiles is
+# occupied by an enemy (GameRules "Any occupied spawn tile delays the
+# entire group"), so a capture can be blocked by an enemy we never see.
+# The measured symptom (01yellow_brick_road): our champion stood ON the
+# capture tile of a 30-camp row for 900 rounds while the capture never
+# completed - the capture candidate outscored every farm and the
+# champion never left. After the hold expires the capture candidate is
+# dropped and the champion farms again. The capture timer is five
+# rounds, so twelve is a safe margin over a capture that DOES land.
+CAPTURE_HOLD_MAX_ROUNDS: int = 12
+CAPTURE_HOLD_TILES: int = 2
 # S2.3 fuel: the radius (in Chebyshev tiles) around us in which a camp
 # group's state is read. The map's vision radius is 8 tiles, and the
 # engine's state read needs one of the group's spawn tiles in vision, so a

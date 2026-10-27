@@ -189,7 +189,7 @@ def _survival(damage: float, max_hp: float) -> float:
     floor - which is what the S2.3 first cut did, and it fed the bot to the
     Monolith (71 deaths on 01boss_battle in the S2.2 reference).
     """
-    floor = float(config.DEATH_RISK_BASE)
+    floor = _T_DEATH_BASE
     if max_hp <= 0:
         return floor
     if damage <= 0:
@@ -336,12 +336,25 @@ _T_DEATH_BASE: float = 0.05
 _T_RISK_FACTOR: float = 0.85
 _T_CAPTURE_TURNS: int = 5
 _T_MAX_HP: float = 0.0
+# B1 fuel: the two constants the EV model reads PER CANDIDATE. They are
+# copied here once per turn so the hot path never walks into the config
+# module (a module attribute lookup is a real cost in this wasm build:
+# ~430 fuel per statement, and the farm generator scores ~24 candidates a
+# turn).
+_T_DEATH_COST: float = 10.0
+_T_PURSUIT_TURNS: int = 3
+# B1: the capture HOLD - how long a champion may hold a capture that does
+# not complete, and how close it must be for the hold to run.
+_T_CAPTURE_HOLD: int = 12
+_T_CAPTURE_HOLD_TILES: int = 2
 
 
 def _refresh_tuning(snap) -> None:
     """Copy the config constants into module globals (once per turn)."""
     global _T_DISCOUNT, _T_GOLD_TO_GEM, _T_CLEAR_FLOOR, _T_ASSISTED
     global _T_DEATH_BASE, _T_RISK_FACTOR, _T_CAPTURE_TURNS, _T_MAX_HP
+    global _T_DEATH_COST, _T_PURSUIT_TURNS
+    global _T_CAPTURE_HOLD, _T_CAPTURE_HOLD_TILES
     _T_DISCOUNT = float(config.TIME_DISCOUNT)
     _T_GOLD_TO_GEM = float(config.GOLD_TO_GEM)
     _T_CLEAR_FLOOR = int(config.FARM_CLEAR_TURNS)
@@ -349,6 +362,19 @@ def _refresh_tuning(snap) -> None:
     _T_DEATH_BASE = float(config.DEATH_RISK_BASE)
     _T_RISK_FACTOR = float(config.REGION_RISK_FACTOR)
     _T_CAPTURE_TURNS = _capture_turns()
+    _T_DEATH_COST = float(config.FIGHT_DEATH_COST)
+    try:
+        _T_PURSUIT_TURNS = int(config.THREAT_PURSUIT_TURNS)
+    except Exception:
+        _T_PURSUIT_TURNS = 3
+    try:
+        _T_CAPTURE_HOLD = int(config.CAPTURE_HOLD_MAX_ROUNDS)
+    except Exception:
+        _T_CAPTURE_HOLD = 12
+    try:
+        _T_CAPTURE_HOLD_TILES = int(config.CAPTURE_HOLD_TILES)
+    except Exception:
+        _T_CAPTURE_HOLD_TILES = 2
     try:
         _T_MAX_HP = float(snap.max_hp)
     except Exception:
@@ -409,6 +435,48 @@ def _anchor_distance(snap, key) -> int:
 # ---------------------------------------------------------------------------
 
 
+def _capture_hold(snap, key, d) -> int:
+    """How long this champion has been HOLDING this group's capture.
+
+    A capture that does not complete is a capture that is BLOCKED: the
+    GameRules delay the whole group while any of its spawn tiles is
+    occupied by an enemy ("Any occupied spawn tile delays the entire
+    group"), and an enemy entering the region resets the progress. The
+    measured symptom (01yellow_brick_road, the release build): our
+    champion stood ON the capture tile of a 30-camp row for 900 rounds
+    while the capture never completed - the capture candidate outscored
+    every farm (the row's 600 gold is worth 12 gem-equivalents, the
+    nearby farms 7) and the champion never left, so the whole match was
+    spent holding one tile.
+
+    The hold therefore TIMES OUT: after CAPTURE_HOLD_MAX_ROUNDS rounds
+    of holding the same group, the capture is not going to happen and
+    the champion goes back to farming. The memory lives on the Bot
+    instance (per champion) and is pruned when the group stops being a
+    capture candidate (the capture landed, or the group was claimed).
+    """
+    bot = getattr(snap, "bot", None)
+    if bot is None:
+        return 0
+    mem = getattr(bot, "capture_hold", None)
+    if not isinstance(mem, dict):
+        mem = {}
+        try:
+            bot.capture_hold = mem
+        except Exception:
+            return 0
+    now = int(getattr(snap, "round_number", 0) or 0)
+    start = mem.get(key)
+    if start is None:
+        # The hold only starts when the champion is close enough for the
+        # capture to be the thing it is doing.
+        if int(d) > _T_CAPTURE_HOLD_TILES:
+            return 0
+        mem[key] = now
+        return 0
+    return now - int(start)
+
+
 def _capture_candidates(snap, field) -> list:
     """Reward-available capture: stand on a cleared spawn tile.
 
@@ -437,16 +505,25 @@ def _capture_candidates(snap, field) -> list:
     discount = _discount()
     turns = _capture_turns()
     out = []
+    seen = set()
     for group in list(groups)[:CAPTURE_CAP]:
         meta = _group_meta(snap, group)
         value = _group_value(meta)
         if value <= 0.0:
             continue
         key = _group_key(group)
+        seen.add(key)
         d, tile = fielding.group_distance(snap, field, key)
         if d is None:
             continue  # unreachable: scores 0 by arithmetic
         score = value * (discount ** max(0, d + turns))
+        # B1: the capture HOLD - a capture that does not complete is a
+        # capture that is blocked (an enemy on one of the group's spawn
+        # tiles delays the whole group). The champion must not spend the
+        # match holding a tile that never pays out.
+        hold = _capture_hold(snap, key, d)
+        if hold > _T_CAPTURE_HOLD:
+            continue
         # B1: a capture we perform while a hostile champion is on us is
         # worth what we actually collect - nothing if we die first.
         score = _threat_adjust(snap, d + turns, score)
@@ -456,7 +533,26 @@ def _capture_candidates(snap, field) -> list:
             note += " commit"
         goals = _group_goal_tiles(snap, field, key, tile)
         out.append(["capture", group, score, note, goals])
+    _prune_capture_hold(snap, seen)
     return out
+
+
+def _prune_capture_hold(snap, seen) -> None:
+    """Forget the groups that are not capture candidates any more.
+
+    A group that stops being a capture candidate either paid out (the
+    capture landed) or was claimed by the enemy - both end the hold, so
+    the next capture of that group (after the respawn) starts fresh.
+    """
+    bot = getattr(snap, "bot", None)
+    if bot is None:
+        return
+    mem = getattr(bot, "capture_hold", None)
+    if not isinstance(mem, dict) or not mem:
+        return
+    for key in list(mem):
+        if key not in seen:
+            mem.pop(key, None)
 
 
 def _group_goal_tiles(snap, field, key, fallback):
@@ -789,7 +885,7 @@ def _hostile_threat(snap) -> dict:
     return view
 
 
-def _threat_factor(snap, turns) -> float:
+def _threat_factor(snap, turns, view=None) -> float:
     """P(survive the action) while a hostile champion is on us.
 
     This is the "never mid-farm-inert" term (the owner's ruling): the
@@ -803,21 +899,25 @@ def _threat_factor(snap, turns) -> float:
     The survival model is the same geometric one every other candidate
     uses, but on our CURRENT health: a champion at 20% health must not
     believe it can farm through a fight.
+
+    FUEL: the caller passes the threat VIEW in (it is cached on the
+    snapshot, but the lookup is still a statement per candidate).
     """
-    view = _hostile_threat(snap)
+    if view is None:
+        view = _hostile_threat(snap)
     contact_dps = float(view["contact_dps"])
     near_dps = float(view["near_dps"])
     if contact_dps <= 0.0 and near_dps <= 0.0:
         return 1.0
     t = max(1, int(turns))
-    incoming = contact_dps * t + near_dps * min(t, int(config.THREAT_PURSUIT_TURNS))
+    incoming = contact_dps * t + near_dps * min(t, _T_PURSUIT_TURNS)
     if incoming <= 0.0:
         return 1.0
     hp = float(snap.hp)
     if hp <= 0.0:
         hp = float(snap.max_hp)
     if hp <= 0.0:
-        return float(config.DEATH_RISK_BASE)
+        return _T_DEATH_BASE
     return _survival(incoming, hp)
 
 
@@ -866,7 +966,7 @@ def _ev(snap, p, gain, bag_in_success=False, stake_share=1.0) -> float:
     delivered bag.
     """
     bag = _our_bag(snap)
-    stake = (bag + float(config.FIGHT_DEATH_COST)) * float(stake_share)
+    stake = (bag + _T_DEATH_COST) * float(stake_share)
     if bag_in_success:
         gain = gain + bag
     return p * gain - (1.0 - p) * stake
@@ -968,8 +1068,20 @@ def _threat_adjust(snap, turns, gross: float, keep_bag: bool = False) -> float:
     respawn window). The bag we still carry is credited in the success
     branch (see _ev); the bank candidate opts out (keep_bag=False)
     because its gross already IS the discounted bag.
+
+    B1 FUEL (the single biggest per-turn item of the whole bot): when NO
+    hostile champion is on us, P(survive) is exactly 1.0, so the EV is
+    exactly the gross - and the whole EV machinery (the survival call,
+    the power, the stake) is dead weight. The measured cost of that dead
+    weight was ~9k fuel PER CANDIDATE on 01yellow_brick_road (the farm
+    generator scores ~24 candidates a turn), i.e. ~220k of the turn's
+    budget spent proving that no enemy was visible. The fast path below
+    is arithmetically identical (1.0 x gross - 0.0 x stake == gross).
     """
-    p = _threat_factor(snap, turns)
+    view = _hostile_threat(snap)
+    if float(view["contact_dps"]) <= 0.0 and float(view["near_dps"]) <= 0.0:
+        return gross
+    p = _threat_factor(snap, turns, view)
     return _ev(snap, p, gross, bag_in_success=False)
 
 
@@ -1814,10 +1926,18 @@ def _farm_candidates(snap, field, clear_map=None) -> list:
     out = []
     if field is None:
         return out
-    rows = getattr(snap, "farm_rows", None) or ()
+    # B1 FUEL: the pool rows are the KILLABLE groups only - the filter is
+    # a static property of the map (observation.farm_kill_rows), so the
+    # per-turn loop does not test it per row any more (one set lookup per
+    # row was ~430 fuel x every row of the map, every turn).
+    rows = getattr(snap, "farm_kill_rows", None)
+    if rows is None:
+        rows = getattr(snap, "farm_rows", None) or ()
+        killable = getattr(snap, "killable_keys", None) or frozenset()
+        if killable:
+            rows = tuple(r for r in rows if r[0] in killable)
     if not rows:
         return out
-    killable = getattr(snap, "killable_keys", None) or frozenset()
     visible_keys = getattr(snap, "visible_group_keys", None) or frozenset()
     # S2.3.2: the groups whose reward was already claimed are NOT farm
     # targets. A respawning group has no live monster, but its cached
@@ -1841,17 +1961,10 @@ def _farm_candidates(snap, field, clear_map=None) -> list:
     visible = []
     zone = []
     for row in rows:
-        key = row[0]
-        if key not in killable:
-            continue
-        dx = row[3] - px
-        if dx < 0:
-            dx = -dx
-        dy = row[4] - py
-        if dy < 0:
-            dy = -dy
+        dx = abs(row[3] - px)
+        dy = abs(row[4] - py)
         cheap = dx if dx > dy else dy
-        if key in visible_keys:
+        if row[0] in visible_keys:
             visible.append((cheap, row))
         else:
             zone.append((cheap, row))
@@ -2140,7 +2253,20 @@ def generate_candidates(snap) -> list[Candidate]:
 
     # A candidate worth nothing never wins the argmax (unreachable targets,
     # hopeless fights): drop the non-positive scores.
-    return [c for c in out if float(c[2]) > 0.0]
+    pos = [c for c in out if float(c[2]) > 0.0]
+    if pos:
+        return pos
+    # B1: EVERY candidate is a net loss (the EV swing priced our death
+    # higher than the prize). The candidate set must not become EMPTY:
+    # a champion that stands still collects nothing and dies to whatever
+    # comes, so the least-bad action still beats doing nothing. The
+    # measured symptom (01yellow_brick_road): a champion with two gems
+    # in the bag had NO candidate at all for 1,700 rounds - the farm EV
+    # is negative whenever we carry a bag (the stake is the bag plus the
+    # death cost), so every farm was dropped and the champion froze.
+    if not out:
+        return []
+    return [max(out, key=lambda c: float(c[2]))]
 
 
 def best(candidates: list[Candidate]) -> Candidate | None:

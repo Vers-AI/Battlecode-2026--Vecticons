@@ -293,6 +293,13 @@ class Snapshot:
     #   11 span       - the group's Chebyshev diameter (the walk across
     #                    the group), charged to the clear time
     farm_rows: tuple = ()
+    # B1 FUEL: the FARM ROWS OF THE KILLABLE GROUPS ONLY. The killable
+    # filter (KILLABLE_HP_CAP + the Monolith flag) is a STATIC property of
+    # the map, so the per-turn farm pool does not test it per row any
+    # more: the measured cost of that set lookup was ~430 fuel for EVERY
+    # row of the map, every turn (01yellow_brick_road: 28 rows = ~12k a
+    # turn, and the pool split was 186k of the turn's budget).
+    farm_kill_rows: tuple = ()
     # The groups that fail the killable filter (Monolith / over-cap static
     # HP) as (key, group) pairs, with their STATIC boss value.
     #
@@ -647,6 +654,7 @@ def _populate_map_cache(bot, snap, s23_cache: bool = False) -> None:
             snap.map_size = cache["map_size"]
             snap.killable_keys = cache.get("killable_keys", frozenset())
             snap.farm_rows = cache.get("farm_rows", ())
+            snap.farm_kill_rows = cache.get("farm_kill_rows", ())
             snap.farm_classes = cache.get("farm_classes", ())
             snap.excluded_groups = cache.get("excluded_groups", ())
             snap.boss_rows = cache.get("boss_rows", ())
@@ -960,6 +968,7 @@ def _populate_map_cache(bot, snap, s23_cache: bool = False) -> None:
     # read ONE field distance per candidate and do the arithmetic - the
     # S2.3 second cut paid ~50k fuel per candidate for metadata reads.
     farm_rows: tuple = ()
+    farm_kill_rows: tuple = ()
     farm_classes: tuple = ()
     excluded_groups: tuple = ()
     boss_rows: tuple = ()
@@ -1051,6 +1060,10 @@ def _populate_map_cache(bot, snap, s23_cache: bool = False) -> None:
                     (key, group, value + unlock, cid, rep[1], rep[2], int(unlock))
                 )
         farm_rows = tuple(rows)
+        # B1 FUEL: the killable rows are a STATIC subset of the farm rows.
+        farm_kill_rows = tuple(
+            row for row in rows if row[0] in killable_keys
+        )
         farm_classes = tuple(class_list)
         excluded_groups = tuple(excluded_list)
         boss_rows = tuple(boss_list)
@@ -1081,6 +1094,7 @@ def _populate_map_cache(bot, snap, s23_cache: bool = False) -> None:
         "map_size": map_size,
         "killable_keys": killable_keys,
         "farm_rows": farm_rows,
+        "farm_kill_rows": farm_kill_rows,
         "farm_classes": farm_classes,
         "excluded_groups": excluded_groups,
         "boss_rows": boss_rows,
@@ -1114,6 +1128,7 @@ def _populate_map_cache(bot, snap, s23_cache: bool = False) -> None:
     snap.map_size = map_size
     snap.killable_keys = killable_keys
     snap.farm_rows = farm_rows
+    snap.farm_kill_rows = farm_kill_rows
     snap.farm_classes = farm_classes
     snap.excluded_groups = excluded_groups
     snap.boss_rows = boss_rows
