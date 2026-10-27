@@ -577,8 +577,10 @@ def _bank_candidates(snap, field) -> list:
         raw = base * (discount ** max(0, d + channel))
         score = raw * mod
         # B1: banking under attack is worth what we bank, not what we
-        # carry - the trip ends when we are dead on it.
-        score = _threat_adjust(snap, d + channel, score)
+        # carry - the trip ends when we are dead on it. The gross already
+        # IS the carried bag (discounted by the trip), so the bag is not
+        # credited again in the success branch (keep_bag=False).
+        score = _threat_adjust(snap, d + channel, score, keep_bag=False)
         if score <= 0.0:
             continue
         cands.append(
@@ -827,19 +829,47 @@ def _our_reach(snap) -> int:
         return 1
 
 
-def _our_stake(snap) -> float:
-    """What our death costs us, in gem-equivalents.
+def _our_bag(snap) -> float:
+    """The gems we carry right now (a champion that dies loses them all).
 
-    The bag we carry (a champion that dies loses every carried gem - the
-    killer takes them) plus the respawn window (we produce nothing while
-    we are dead). This is the stake in every trade: it is what makes a
-    bad fight lose to a good escape.
+    GameRules: "When a champion dies ... the killer receives all carried
+    gems"; "If a camp kills you, the carried gems are lost."
     """
     try:
-        carried = float(snap.gems)
+        return float(snap.gems)
     except Exception:
-        carried = 0.0
-    return carried + float(config.FIGHT_DEATH_COST)
+        return 0.0
+
+
+def _ev(snap, p, gain, bag_in_success=False, stake_share=1.0) -> float:
+    """The expected value of an action, in gem-equivalents.
+
+    The ONE form every candidate uses (B1):
+
+        EV = P(survive) x (what the action collects)
+             - (1 - P(survive)) x (the bag we lose + what our death costs)
+
+    The stake is the bag we carry (a champion that dies loses every
+    carried gem - the killer takes them) plus the respawn window we
+    produce nothing through.
+
+    `bag_in_success` credits the bag in the SUCCESS branch as well: the
+    fight, the chase and the flee are actions whose POINT is what we hold
+    afterwards, so a loaded champion that escapes (or wins) keeps its
+    gems and must be paid for that. Without it the flee scored
+    negative whenever we carried a bag, every candidate went negative with
+    it, the argmax froze and the champion stood still and died with the
+    bag (the probe on 00gemfight: "BEST=NONE" on 3 of 28 contact rounds,
+    22 gems lost to deaths in one match).
+
+    The BANK candidate never credits the bag: its gross already IS the
+    delivered bag.
+    """
+    bag = _our_bag(snap)
+    stake = (bag + float(config.FIGHT_DEATH_COST)) * float(stake_share)
+    if bag_in_success:
+        gain = gain + bag
+    return p * gain - (1.0 - p) * stake
 
 
 def _fight_win(ratio: float) -> float:
@@ -918,7 +948,7 @@ def _fight_window(snap, enemy, dist, dmg, our_damage):
     }
 
 
-def _threat_adjust(snap, turns, gross: float) -> float:
+def _threat_adjust(snap, turns, gross: float, keep_bag: bool = False) -> float:
     """The EV of an action performed while a hostile champion is on us.
 
     The "never mid-farm-inert" term (the owner's ruling): the score of an
@@ -929,19 +959,18 @@ def _threat_adjust(snap, turns, gross: float) -> float:
     "farm" for round after round while three enemies killed it
     (00elkring, our replay: 1 kill in 5 maps, 143 gems stolen).
 
-    The form is the same expected-value swing the fight and flee
-    candidates use:
+    The form is the same expected-value swing every candidate uses:
 
         EV = gross x P(survive) - (1 - P(survive)) x our stake
 
     so a farm under a beating is worth what we actually collect (nothing
-    if we die on the way) MINUS what we lose when we die (the bag we
-    carry plus the respawn window).
+    if we die on the way) MINUS what we lose when we die (the bag and the
+    respawn window). The bag we still carry is credited in the success
+    branch (see _ev); the bank candidate opts out (keep_bag=False)
+    because its gross already IS the discounted bag.
     """
     p = _threat_factor(snap, turns)
-    if p >= 1.0:
-        return gross
-    return gross * p - (1.0 - p) * _our_stake(snap)
+    return _ev(snap, p, gross, bag_in_success=False)
 
 
 def _fight_candidates(snap, field) -> list:
@@ -1000,7 +1029,6 @@ def _fight_candidates(snap, field) -> list:
     if hp <= 0.0:
         hp = float(snap.max_hp)
     discount = _discount()
-    stake = _our_stake(snap)
     attack_tiles = None
     if snap.can_attack:
         try:
@@ -1008,6 +1036,7 @@ def _fight_candidates(snap, field) -> list:
         except Exception:
             attack_tiles = None
     chases = []
+    max_chase_turns = int(config.CHASE_MAX_TURNS)
     for enemy, dist, dmg in enemies:
         try:
             pos = enemy.position()
@@ -1015,23 +1044,35 @@ def _fight_candidates(snap, field) -> list:
             ey = int(pos.y)
         except Exception:
             continue
-        window = _fight_window(snap, enemy, dist, dmg, our_damage)
-        if window is None:
-            continue
-        value = _kill_value(snap, enemy, ex, ey)
-        if value <= 0.0:
-            continue
         in_range = False
         if attack_tiles is not None:
             try:
                 in_range = bool(attack_tiles.is_set(pos))
             except Exception:
                 in_range = False
+        if not in_range:
+            # FUEL: the path distance is never shorter than the straight
+            # line (Chebyshev) distance, so an enemy that is already
+            # farther away than the whole chase budget can never be
+            # caught. The cut is pure integer arithmetic and it happens
+            # BEFORE the fight window, the kill value and the field read
+            # (the field read is the expensive part of a chase
+            # candidate). Without it the courier hunt burns the turn's
+            # fuel budget (measured: 277 -> 1,406 fuel exhaustion events
+            # on the two-map A/B when every visible enemy was chased).
+            if dist > max_chase_turns:
+                continue
+        window = _fight_window(snap, enemy, dist, dmg, our_damage)
+        if window is None:
+            continue
+        value = _kill_value(snap, enemy, ex, ey)
+        if value <= 0.0:
+            continue
         if in_range:
             ratio = window["incoming"] / hp if hp > 0.0 else 9.9
             win = _fight_win(ratio)
             gain = value * (discount ** max(0, window["kill_turns"]))
-            score = win * gain - (1.0 - win) * stake
+            score = _ev(snap, win, gain, bag_in_success=True)
             note = (f"bag={int(value)} t={window['kill_turns']} "
                     f"r={ratio:.2f} win={win:.2f} ev={score:.1f}")
             out.append(["fight", enemy, score, note, None])
@@ -1058,8 +1099,12 @@ def _fight_candidates(snap, field) -> list:
         ratio = window["incoming"] / hp if hp > 0.0 else 9.9
         win = _fight_win(ratio)
         gain = value * (discount ** max(0, total))
-        score = (win * gain * float(config.CHASE_SUCCESS_FACTOR)
-                 - (1.0 - win) * stake * float(config.CHASE_STAKE_SHARE))
+        # The chase lands only CHASE_SUCCESS_FACTOR of the time (the target
+        # keeps moving); the bag we still carry is credited on the branch
+        # where we survive it.
+        p = win * float(config.CHASE_SUCCESS_FACTOR)
+        score = _ev(snap, p, gain, bag_in_success=True,
+                    stake_share=float(config.CHASE_STAKE_SHARE))
         chases.append((score, enemy, pos,
                        f"bag={bag} d={d} t={total} win={win:.2f} ev={score:.1f}"))
     if chases:
@@ -1150,17 +1195,19 @@ def _capture_reset_value(snap, ex, ey) -> float:
 def _flee_candidates(snap) -> list:
     """Flee candidate: break contact with a champion that is hitting us.
 
-    B1: the score is an EXPECTED-VALUE SWING, like the fight candidate:
+    B1: the score is an EXPECTED-VALUE SWING, like every other candidate:
 
-      score = P(escape) x (the ground we save)
+      score = P(escape) x (the ground we save + the bag we keep)
               - (1 - P(escape)) x (what our death costs us)
 
     The first B1 cut scored the escape as (base + carried bag) x hp factor,
     which made it win EVERY contact round (the probe: 278 escapes against
     2 fights on 00gemfight) - the bot ran from fights it was winning and
-    stood still while a ranged enemy chipped it to death. Carrying gems is
-    a reason to escape, not a reason to score the escape above a good
-    fight: the bag is already priced as part of our stake.
+    stood still while a ranged enemy chipped it to death.
+
+    The bag is priced in the SUCCESS branch (an escape is a way of KEEPING
+    the bag, so a loaded champion escapes for a real reason) and the death
+    branch carries only the respawn cost.
 
     The escape probability depends on the enemy's reach: a RANGED champion
     must choose between moving and attacking (GameRules), so a champion
@@ -1171,7 +1218,6 @@ def _flee_candidates(snap) -> list:
     contact = view["contact"]
     if not contact:
         return []
-    stake = _our_stake(snap)
     best = None
     for enemy, dist, dmg in contact:
         try:
@@ -1186,7 +1232,8 @@ def _flee_candidates(snap) -> list:
         # walks and attacks in the same turn.
         if reach <= 1 and dist <= 1:
             escape *= 0.5
-        score = escape * float(config.FLEE_BASE_VALUE) - (1.0 - escape) * stake
+        score = _ev(snap, escape, float(config.FLEE_BASE_VALUE),
+                    bag_in_success=True)
         if best is None or score > best[0]:
             best = (score, enemy)
     if best is None or best[0] <= 0.0:
@@ -1662,6 +1709,18 @@ def _clear_map(snap) -> dict:
         max_hp = float(snap.max_hp)
     except Exception:
         max_hp = 0.0
+    # B1: the clear is priced against our CURRENT health, not our maximum.
+    # The old model used max_hp, so a champion that was already beaten to
+    # 30% health still believed it could walk into a camp that would kill
+    # it - the measured symptom was 68 of our 73 deaths on 00elkring and
+    # 13 of 22 on 00gemfight being CAMP deaths, each one losing the bag
+    # the champion was carrying (22 gems lost to deaths in one match).
+    try:
+        cur_hp = float(snap.hp)
+    except Exception:
+        cur_hp = max_hp
+    if cur_hp <= 0.0:
+        cur_hp = max_hp
     out = {}
     for cls in classes:
         try:
@@ -1684,10 +1743,10 @@ def _clear_map(snap) -> dict:
                 spread = 1.0
             incoming = strength * clear_turns / spread
             if incoming > 0.0:
-                if max_hp <= 0.0:
+                if cur_hp <= 0.0:
                     survive = _T_DEATH_BASE
                 else:
-                    survive = _T_DEATH_BASE ** (incoming / max_hp)
+                    survive = _T_DEATH_BASE ** (incoming / cur_hp)
                     if survive > 1.0:
                         survive = 1.0
         out[cid] = (clear_turns, survive)

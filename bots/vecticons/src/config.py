@@ -373,7 +373,7 @@ FIGHT_GOLD_VALUE: float = 0.02
 #     against the OLD team production (1,000 gems per match) and made
 #     every kill look like a windfall - the probe showed the bot then
 #     chasing kills it could not win.
-FIGHT_DENIAL_VALUE: float = 4.0
+FIGHT_DENIAL_VALUE: float = 8.0
 # (c) CONTESTED ACCESS - an enemy standing on our cleared camp tiles
 #     resets the engine's five-round capture timer (GameRules capture
 #     rules), so removing it protects the farm cycle we already paid for.
@@ -413,7 +413,7 @@ FIGHT_WIN_FLOOR: float = 0.02
 # Chase (courier hunt): a loaded enemy is worth walking to. The enemy's
 # bag must clear the bar, the walk must be short, and the candidate pool
 # is capped (the S2.3 fuel history: candidate floods burn the budget).
-CHASE_MIN_BAG: int = 8           # gems the target must carry
+CHASE_MIN_BAG: int = 2           # gems the target must carry
 CHASE_MAX_TURNS: int = 12        # path turns we are willing to spend
 CHASE_MAX_CANDIDATES: int = 3
 # The target may keep moving, so the chase is not certain to land.
