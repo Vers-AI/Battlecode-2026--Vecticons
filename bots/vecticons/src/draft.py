@@ -5,14 +5,15 @@ Writes the draft-memory layout (frozen in plan/architecture.md; S2.3 extends
 it to format version 2 with the boss unlock section).
 
 Key decisions: the map layout (altars, camp groups, zone) is computed ONCE
-per process on the first draft turn (10x fuel) and cached at module level —
+per process on the first draft turn (100x fuel - GameRules "Fuel") and
+cached at module level —
 the pre-fix code re-derived it per pick, and on the patched pool's bigger
 maps that exhausted the 1x fuel of later draft turns, making the engine
 random-substitute our picks (~15/40 maps).
 
 S2.3: the boss "unlock value" (the reachability delta of an excluded group —
 what opens if its tiles open) is static map topology, so it is computed in
-the draft's 10x-fuel window and shipped to the play phase through the
+the draft's 100x-fuel window and shipped to the play phase through the
 extended (v2) team draft memory. The play phase falls back to computing it
 on its first (2x-fuel) turn when the draft memory carries none.
 
@@ -97,7 +98,7 @@ def _camp_zone_nearest_spawn(spawn, groups) -> int:
 
 
 def _layout() -> tuple[int, int]:
-    """Altar count and camp zone, computed once (first draft turn, 10x fuel).
+    """Altar count and camp zone, computed once (first draft turn, 100x fuel).
 
     Re-deriving this per pick (and per draft turn) is what exhausted fuel on
     the patched pool's larger maps — each subsequent draft turn only gets 1x
@@ -126,7 +127,7 @@ def _unlock_section() -> bytes:
 
     The unlock value of an excluded group is the reachability delta of the
     map: what opens up if that group's tiles open. It is static topology, so
-    it is computed in the draft's 10x-fuel window and shipped to the play
+    it is computed in the draft's 100x-fuel window and shipped to the play
     phase through the v2 draft memory (the play phase falls back to its own
     first-turn precompute when this section is empty).
     """

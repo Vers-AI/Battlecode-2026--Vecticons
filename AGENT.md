@@ -22,8 +22,8 @@ You are a **CAMBC (Cambridge Battlecode) bot developer** writing **Python** bots
 
 - **Project Name:** Vecticons (CAMBC 2026a)
 - **Description:** Champion bots that draft, farm camps, bank gems at altars, and fight, targeting the contest/ladder.
-- **Champions:** 3–5 drafted per match. 11 draftable picks (Cassi & Issac draft as one pick but play as two bodies; 12 playable types total). Our bot code runs once per champion, per turn.
-- **Event:** cambc2026a (`sdk_version = "2.2.4"` in `cambc.toml`).
+- **Champions:** 3–5 drafted per match. 12 draftable picks (Cassi & Issac draft as one pick but play as two bodies; 13 playable types total). Our bot code runs once per champion, per turn.
+- **Event:** cambc2026a (`sdk_version = "4.0.0"` in `cambc.toml`).
 
 ---
 
@@ -46,11 +46,11 @@ When the rules and your code disagree, the rules win. Cite GameRules.md section 
 **Core loop:** clear camps → capture (stand on cleared spawn tile 5 rounds) → carry gems → tribute at an altar (channel `ceil(gems/10)` turns) → spend gold on items on spawn tiles.
 **Champions turn-by-turn:** each turn = at most one move, one basic attack, one ability cast; ranged champions can't move+basic-attack in the same turn (movement and attack share an allowance); melee can walk-and-attack; every ability is 8-turn-end cooldown, one cast per turn, some exclude walking.
 **Map:** 30×30–100×100 grid; walls block LOS/movement/dash; holes block movement/dash but not vision; bushes hide occupants but are walkable; altars are tribute points; spawn tiles heal and allow shopping.
-**Camps:** groups of monsters (Wolf/Elk/Gem cluster/Gold cluster/Monolith) that wake when damaged, attack the nearest champion every turn (range 3), and go back to sleep after two rounds without damage/an in-range champion. They respawn on timers.
-**Items:** shards (30g) add growth stats; 5 auto-combine into an emblem (family passives: Monster +10% camp dmg, Durability −10% dmg taken, Treasure +20% gold, Jungle −30% camp dmg taken, Home shortens recall to 3, Power 6 shards worth, Bruiser spread). Consumables (10g, one each): Altar lock and Teleport crystal (3-turn channel).
-**Vision:** 8-tile symmetric shadowcasting, blocked by walls/bushes; standing in a bush sees within the connected bush cluster. Each champion has one free ward (vision 6, place within 2 tiles, relocate every turn). **Vision is NOT shared between allies** — coordinate through the 8-byte shared memory.
+**Camps:** groups of monsters (Wolf/Elk/Golem/Gem cluster/Gold cluster/Monolith) that wake when damaged, attack the nearest champion every turn (Wolf range 3, Elk and Golem range 4, Monolith range 5), and go back to sleep after two rounds with no champion in range. They respawn on timers (Wolf 40, Elk 60, Golem 80, clusters 50, Monolith 150).
+**Items:** shards (30g) add growth stats; 5 auto-combine into an emblem (family passives: Monster +15% camp dmg, Durability −10% dmg taken, Treasure +10% gold, Jungle −30% camp dmg taken, Home shortens recall to 3, Power 6 shards worth, Bruiser spread, Tribute −33% tribute time, Capture caps the capture timer at 3, Prospector +25% of cluster rewards, Hunter +50g per kill, Skirmish +5% dmg to champions, Greed 25 shards → 35 shards worth, Collectors +1% dmg per family). Consumables (10g, one each): Altar lock (cleared by 5 basic attacks) and Teleport crystal (3-turn channel).
+**Vision:** 8-tile symmetric shadowcasting, blocked by walls/bushes; standing in a bush sees within the connected bush cluster. Each champion has one free ward (vision 6, place within 2 tiles; the trinket charge recharges over 10 owner turn ends, so a ward is relocated every tenth owner turn end). **Vision is NOT shared between allies** — coordinate through the 8-byte shared memory.
 **Channels:** recall (5 ticks, interrupted by damage/stun; heals at turn start if standing on spawn at turn end), tribute (ticks at turn end, completes at next turn start), teleport (3 ticks, not interrupted by damage).
-**Death:** killer takes your carried gems + 50g; killed by camp loses gems; respawn at spawn tiles after 60 rounds; dead champions still shop.
+**Death:** killer takes your carried gems + 100g; killed by camp loses gems; respawn at spawn tiles after 60 rounds; dead champions still shop.
 **Memory:** 1,024-byte draft memory (written in draft, read-only in match) + 8 bytes shared memory (readable/writable all match, per team, hidden from opponent).
 
 ---
@@ -83,7 +83,7 @@ The first step is to create a plan for everything you want to do and break it do
 - **`debug_block` is free (mostly) in dev, gone in release:** wrap dev-only analytics/prints in `cambc.debug_block(lambda: ...)`; the platform builds with `--release` so debug blocks are skipped entirely. Do not put game-affecting logic inside `debug_block`.
 - **Determinism:** WASI randomness is zero in matches — seed our PRNG from spawn tile + champion start position (see `randomness.py`). Same seed ⇒ same behavior. Keep decision order stable.
 - **Fuel budget:** Python gets 25× the C++ limit (~100k → ~2.5M fuel per turn). Budget per turn and **short-circuit before out-of-fuel**. Check `cambc.fuel_remaining()` before expensive planning (e.g., full-map DistanceField). Bots resume from suspension next round — but do NOT rely on this: always make the per-turn work idempotent.
-- **First-turn budget:** 10× fuel on draft turn 1, 2× on play turn 1. Cache anything reusable (camp layout union, spawn mask, altar approach tiles) on these turns — the existing `bot.camp_layout` pattern is the model.
+- **First-turn budget:** 100× fuel on draft turn 1, 2× on play turn 1. Cache anything reusable (camp layout union, spawn mask, altar approach tiles) on these turns — the existing `bot.camp_layout` pattern is the model.
 - **Schema/versioning:** If storing persistent state between turns (bot instance fields, shared memory), keep the layout documented and versioned; validate on read; fall back to safe defaults on corruption.
 - **8-byte shared memory layout:** define the byte layout once (e.g., B0: objective ID, B1–B3: round-stamped counter, B4–B7: packed coordinates) and document it at the top of `bot.py`. All champion bots must agree on the layout — write, don't read-then-modify blindly (all allies write the same convention).
 - **Explain when useful:** If adding a new data structure, include a 2-3 sentence note: purpose, update frequency, and read path.
@@ -94,7 +94,7 @@ The first step is to create a plan for everything you want to do and break it do
 
 - [ ]  No I/O in the turn loop except `print` (captured, capped).
 - [ ]  Deterministic: same seed ⇒ same behavior; PRNG seeded from spawn/start.
-- [ ]  Expensive computations cached on first turn (10×/2× fuel) and reused.
+- [ ]  Expensive computations cached on first turn (100×/2× fuel) and reused.
 - [ ]  `debug_block` used for dev-only analytics; zero game logic inside.
 - [ ]  Shared/draft memory layouts documented and validated on read.
 
@@ -182,7 +182,7 @@ The agent implements the **first** only, tests with a local run, and lists the s
 **Threat representation**
 
 - Danger tiles: enemy attack ranges (Chebyshev 1 or 3), stun zones, bush ambushes
-- Camp aggro: woken camps within range 3 of our path/position
+- Camp aggro: woken camps within their own range of our path/position (Wolf 3, Elk/Golem 4, Monolith 5)
 - Recall/tribute interruption risk: enemies within interrupt range of our channeling champions
 
 ---
@@ -210,7 +210,7 @@ The agent implements the **first** only, tests with a local run, and lists the s
 
 **Ward scheduling**
 
-- One ward per champion, range 6, placed within 2 tiles, relocate every turn (free action)
+- One ward per champion, range 6, placed within 2 tiles, trinket charge recharges over 10 owner turn ends
 - Ward high-traffic tiles: altar approaches, contested camp groups, mid-map corridors
 - Recall vision coverage when planning altar/camp contest paths
 
@@ -233,9 +233,9 @@ The agent implements the **first** only, tests with a local run, and lists the s
 
 **Farming manager (economy)**
 
-- Camp value table: gems+gold per group, respawn timers (Wolf 40, Elk 60, clusters 50, Monolith 150)
+- Camp value table: gems+gold per group, respawn timers (Wolf 40, Elk 60, Golem 80, clusters 50, Monolith 150)
 - Target selection: distance vs reward vs respawn state (skip `CampGroupRespawning` groups)
-- Kill order within group: wake management (2-turn sleep rule), range management (monster range 3)
+- Kill order within group: wake management (2-turn sleep rule), range management (Wolf 3, Elk/Golem 4, Monolith 5)
 - Capture timing: stand on a spawn tile of cleared group for 5 rounds; extra allies don't speed it up
 - Reward splits: multiple allies split evenly; lowest ID gets remainder — avoid over-stacking captures
 
@@ -244,7 +244,7 @@ The agent implements the **first** only, tests with a local run, and lists the s
 - Tribute channel: `ceil(gems/10)` turns, one start + one cancel per turn, damage doesn't interrupt but stun/death/altar lock does
 - When to bank: gem count threshold vs distance to altar vs threat risk
 - Altar choice: nearest unlocked; avoid carrying >X gems near enemies (death drops them to killer)
-- Altar locks: buy/carry/use (10g, place within 2 tiles, cancels enemy channels, 3 attacks to clear)
+- Altar locks: buy/carry/use (10g, place within 2 tiles, cancels enemy channels, 5 attacks to clear)
 
 **Shopping manager (gold spending)**
 
@@ -319,10 +319,10 @@ The agent implements the **first** only, tests with a local run, and lists the s
 
 **General micro**
 
-- Positioning: ranged at max range (3), melee adjacent; respect monster range 3 when farming
+- Positioning: ranged at max range (3), melee adjacent; respect the camp's own range when farming (Wolf 3, Elk/Golem 4, Monolith 5)
 - Kiting camps: hit, step back, re-hit (2-turn sleep rule on un-damaged camps)
 - Bush play: hide in bushes to break enemy vision; wards don't see into bushes from outside
-- Ward micro: re-place ward every turn toward threat/altar direction (free, once per round)
+- Ward micro: re-place ward toward threat/altar direction (free action, but the trinket charge recharges over 10 owner turn ends — one relocation every tenth owner turn end)
 - Consumable micro: altar lock placement (within 2 tiles of altar), TP crystal for terrain bypass
 
 **Champion-specific micro**
@@ -337,7 +337,7 @@ The agent implements the **first** only, tests with a local run, and lists the s
 
 ### 9. DRAFTING SYSTEM (PRE-MATCH STRATEGY)
 
-**Draft analysis (10× fuel on first draft turn)**
+**Draft analysis (100× fuel on first draft turn)**
 
 - Full map visible during draft: precompute camp group layout, altar distances, spawn-camp distances
 - `draft.team_size()`: 3–5 champions per map
@@ -368,8 +368,8 @@ The agent implements the **first** only, tests with a local run, and lists the s
 
 **Altar denial**
 
-- Altar locks: buy (10g), carry (one at a time), place within 2 tiles; cancels enemy channels; 3 basic attacks to clear
-- Lock high-value enemy altars when leading; clear enemy locks on our altars (3 attacks, or tribute auto-attacks the lock)
+- Altar locks: buy (10g), carry (one at a time), place within 2 tiles; cancels enemy channels; 5 basic attacks to clear
+- Lock high-value enemy altars when leading; clear enemy locks on our altars (5 attacks, or tribute auto-attacks the lock)
 - Contest windows: enemy mid-tribute = free interrupt (stun/kill)
 
 ---

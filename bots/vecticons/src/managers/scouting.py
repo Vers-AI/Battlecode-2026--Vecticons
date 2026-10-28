@@ -2,9 +2,10 @@
 
 A ward is a FREE parallel action: it spends the champion's TRINKET
 CHARGE, not the move/attack allowance (GameRules :116 - "Wards require
-their trinket charge; consumables require inventory"), and it can be
-relocated once per round (GameRules "One active ward: a new ward replaces
-the old one"). Our campaign stats showed wardPlacement = 0 everywhere:
+their trinket charge; consumables require inventory"), and the charge
+recharges over 10 owner turn ends (GameRules "Wards"; the engine's
+WARD_COOLDOWN reads 10), so a ward can be relocated only every tenth
+owner turn end. Our campaign stats showed wardPlacement = 0 everywhere:
 the ward was never placed at all.
 
 THE SCORE is INFORMATION GAIN, in the task's own terms:

@@ -54,7 +54,17 @@ RECALL_UTILITY: float = 200.0     # PLACEHOLDER. Legacy constant (Stage 3 recall
                               # S2.3: the recall candidate is scored
                               # (RECALL_HEAL_VALUE + RECALL_GOLD_VALUE) x discount^d_spawn x
                               # P(channel survives) instead of this flat number.
-KILL_REWARD_GOLD: int = 50        # GameRules "When a champion dies".
+# The kill reward is an ENGINE value (cambc.constants.KILL_GOLD, probed at
+# 100 on CLI 4.0.0 / engine 2.0.0 - GameRules "When a champion dies": the
+# killer receives all carried gems and 100 base gold). The default below is
+# the documented value; resolve() overwrites it with the engine's own.
+#
+# 2026-10-28: the fight candidate used to price the kill gold with a
+# hardcoded 50 - the OLD rule value. Every fight and chase candidate
+# under-priced a kill by half. The engine constant was already being
+# resolved into KILL_GOLD_ON_DEATH but nothing read it; the hardcoded
+# constant is now gone (First Fix: one source of truth).
+KILL_GOLD_ON_DEATH: int = 100
 # S2.3: channel lengths (GameRules). The tribute channel runs ceil(gems/10)
 # rounds; the recall channel is 5 ticks. Both are priced into the discount so
 # a long channel is worth less than a short one.
@@ -176,7 +186,10 @@ PATH_REANCHOR_READS: int = 12
 PATH_EXPOSURE_STEPS: int = 24
 # How many top-scoring candidates get a path-exposure read per turn.
 PATH_EXPOSURE_CANDIDATES: int = 2
-# Monster attack range (GameRules: "All monsters have attack range 3").
+# Monster attack range (GameRules camp table: "Wolf attacks at range 3, Elk
+# and Golem at range 4, and Monolith at range 5"). This flat value is only
+# the FALLBACK for a camp record with no range of its own; the per-kind
+# table below is what the threat model uses.
 MONSTER_RANGE: int = 3
 
 # ---------------------------------------------------------------------------
@@ -245,9 +258,9 @@ RECALL_GOLD_VALUE: float = 0.05    # Gem-equivalent value of one held gold (a sh
 RECALL_GOLD_TRIGGER: int = 150     # PLACEHOLDER. Gold held before the spend term becomes active.
 RECALL_GOLD_CAP: int = 300         # PLACEHOLDER. Gold above this is not worth a trip.
 RECALL_INTERRUPT_RISK: float = 0.5 # PLACEHOLDER. P(channel survives) with an enemy in range.
-# Engine-probed camp design table (CLI 3.0.4 / engine 1.0.2).  The table is
+# Engine-probed camp design table (CLI 4.0.0 / engine 2.0.0).  The table is
 # read from the engine's own `camp.base_stats()` (CampStats), NOT from
-# ref/GameRules.md: the engine's design table and the document disagree.
+# ref/GameRules.md.
 #
 # Re-probed 2026-10-24 on 00road_of_riches (51 groups, SIX camp kinds):
 #   kind  base HP  strength  attack range
@@ -256,8 +269,7 @@ RECALL_INTERRUPT_RISK: float = 0.5 # PLACEHOLDER. P(channel survives) with an en
 #     2       120         0             3    (gem cluster)
 #     3       120         0             3    (gold cluster)
 #     4     20000       200             5    (monolith)
-#     5      5000       120             4    (the "big" monster - NOT in
-#                                               ref/GameRules.md's table)
+#     5      5000       120             4    (the "big" monster - the GOLEM)
 #
 # S2.3.4 FIX: kind 5 was MISSING from the table. Its strength read back as
 # 0, so every group of big monsters had total_strength == 0, its
@@ -267,6 +279,11 @@ RECALL_INTERRUPT_RISK: float = 0.5 # PLACEHOLDER. P(channel survives) with an en
 # 0 kills) and burned 4,471 fuel-exhaustion events. With the real
 # strength (120) the boss prices itself out BY ARITHMETIC, which is the
 # mechanism the S2.3 done-when requires (no exclusion gate).
+#
+# 2026-10-28: the rules update now PUBLISHES the Golem (5,000 HP, 120
+# strength, range 4, 160 gold, 36 gems, 80-round respawn), so the table and
+# the document agree on every kind except the clusters' attack range (the
+# document lists 0, the engine reads 3 - moot at strength 0).
 #
 # The group values are the sum over the group's camps. The HP table feeds
 # the killable filter and the clear-time estimate; the strength table
@@ -487,6 +504,10 @@ CHAMPION_STAT_PRIORITY: dict[str, str] = {
     "TAVI": "FOCUS",
     "CASSI": "STRENGTH",
     "ISSAC": "STRENGTH",
+    # Heart of Ruin (the 2026-10-28 roster addition): melee, 30 strength /
+    # 3 growth, and her passive converts missing health into damage - so
+    # the damage stat is what pays, exactly like Varg's.
+    "HEART_OF_RUIN": "STRENGTH",
 }
 
 _POWER_SHARD_BY_STAT: dict[str, str] = {
@@ -501,27 +522,42 @@ _STAT_INDEX: dict[str, int] = {"STRENGTH": 0, "FOCUS": 1, "HEALTH": 2}
 # S2.4 - shopping utility: per-champion emblem family.
 # ---------------------------------------------------------------------------
 # GameRules "Emblem families": five matching shards combine into an emblem
-# and ONLY the completed emblem grants the passive:
-#   MONSTER    +10% damage to camps
+# and ONLY the completed emblem grants the passive (the "Counts as" column
+# is what the emblem is WORTH in stat points, not the number of shards it
+# takes - Power's emblem counts as six shards' worth, and the engine
+# confirms POWER_SHARD.combine_count() == 5):
+#   MONSTER    +15% damage to camps
 #   POWER      six shards' worth of the chosen stat (no separate passive)
 #   DURABILITY -10% incoming damage
-#   TREASURE   +20% gold gained (ADDS to Vesper Vale's 33% -> 53%)
+#   TREASURE   +10% gold gained (ADDS to Vesper Vale's 33% -> 43%)
 #   JUNGLE     -30% damage taken from camps
 #   HOME       50% shorter recall (5 turn ends -> 3)
 #   BRUISER    a spread of stats
+#   TRIBUTE    33% shorter tribute (rounded up to at least one turn)
+#   CAPTURE    caps the team's capture timer at 3 rounds
+#   PROSPECTOR +25% of your share of cluster rewards
+#   HUNTER     +50 gold per champion kill
+#   SKIRMISH   +5% damage to champions
+#   GREED      no passive; 25 shards (750 gold) -> 35 shards' worth of stats
+#   COLLECTORS +1% damage per unique completed emblem family
+#
+# The bot builds MONSTER, DURABILITY, TREASURE and POWER only - the
+# families whose passive changes how fast it farms or how safely it
+# survives. The other nine are untouched by the shopping argmax (they are
+# F4 territory, not a rules-representation gap).
 #
 # The FAMILY picks the passive; the STAT variant still comes from the
 # existing CHAMPION_STAT_PRIORITY map, so there is exactly ONE mapping
 # (config.power_shard_for) and ONE buyer (bot.buy_items).
 CHAMPION_EMBLEM_FAMILY: dict[str, str] = {
-    # Melee tanks / farmers: MONSTER (+10% camp damage = faster clears) or
+    # Melee tanks / farmers: MONSTER (+15% camp damage = faster clears) or
     # DURABILITY (-10% incoming damage = survive the pack).
     "RYTH": "MONSTER",        # melee tank, area stun; camps are its economy
     "VARG": "MONSTER",        # splash melee, farms packs
     "MARCELLA": "DURABILITY",  # stun-immune tank (tribute gold passive)
     "REN": "DURABILITY",      # retaliation tank
     "WILLOW": "DURABILITY",   # healer: keep her alive
-    # The economy engine: Vesper's 33% gold + Treasure's 20% = 53%.
+    # The economy engine: Vesper's 33% gold + Treasure's 10% = 43%.
     "VESPER_VALE": "TREASURE",
     # Kill-reset farmer: camp damage is her leverage.
     "VENDETTA": "MONSTER",
@@ -531,6 +567,9 @@ CHAMPION_EMBLEM_FAMILY: dict[str, str] = {
     "TAVI": "POWER",
     "CASSI": "POWER",
     "ISSAC": "POWER",
+    # Heart of Ruin: melee bruiser (dash + shield, damage scales with
+    # missing health) - the farming family's camp damage is her leverage.
+    "HEART_OF_RUIN": "MONSTER",
 }
 
 # ---------------------------------------------------------------------------
@@ -552,16 +591,21 @@ CONSUMABLE_RESERVE_GOLD: int = 20
 # lock / the reach of a teleport). Below SHARD_STAT_VALUE, so a shard
 # beats the reserve as soon as the gold covers both.
 CONSUMABLE_RESERVE_VALUE: float = 0.5
-# Shards needed for one emblem (GameRules: five matching shards combine).
+# Shards needed for one emblem (GameRules: five matching shards combine;
+# Greed takes 25). The emblem is then WORTH the family's multiplier of that
+# stat (Power's emblem counts as six shards' worth) - the "Counts as"
+# column is the stat value, not the shard count. Probed on engine 2.0.0:
+# every family's shard reports combine_count() == 5 (Greed: 25).
 EMBLEM_SHARD_COUNT: int = 5
 
 # ---------------------------------------------------------------------------
 # S2.4 - altar locks (the denial consumable).
 # ---------------------------------------------------------------------------
 # An altar lock costs 10 gold, is placed within two tiles of an altar and
-# blocks the OPPOSING team's tributes until three basic attacks clear it
-# (GameRules "Consumables"). The owner team can still pay tribute through
-# its own lock (GameRules :237), so our locks never block our bankers.
+# blocks the OPPOSING team's tributes until five basic attacks clear it
+# (GameRules "Altar locks"; the engine's ALTAR_LOCK_HITS reads 5). The
+# owner team can still pay tribute through its own lock (GameRules :237),
+# so our locks never block our bankers.
 ALTAR_LOCK_COST: int = 10
 # The placement radius of the lock around the altar (GameRules: "within
 # two tiles").
@@ -625,17 +669,19 @@ WARD_ALTAR_WEIGHT: float = 2.0
 # by the coarse score). The candidate set is the 5x5 box around us, so
 # this bounds the whole per-turn cost of the argmax.
 WARD_CANDIDATE_CAP: int = 5
-# The trinket charge: the rounds between two ward placements (the engine
-# constant WARD_COOLDOWN, resolved in resolve()). bot.py mirrors it
-# locally so the common turn costs one comparison, not an engine read.
-WARD_COOLDOWN_ROUNDS: int = 1
+# The trinket charge: the owner turn ends between two ward placements
+# (the engine constant WARD_COOLDOWN, resolved in resolve(); probed at 10
+# on engine 2.0.0 - GameRules "Wards": the charge recharges over 10 owner
+# turn ends). bot.py mirrors it locally so the common turn costs one
+# comparison, not an engine read. The default below is the documented
+# value; the engine's own number replaces it on the first resolve().
+WARD_COOLDOWN_ROUNDS: int = 10
 
 # Cached cambc.constants lookups, lazy to avoid the wasm preload.
 _resolved = False
 TRIBUTE_RANGE: int = 0
 CAPTURE_ROUNDS: int = 0
 RESPAWN_ROUNDS: int = 0
-KILL_GOLD_ON_DEATH: int = 0
 
 
 def resolve() -> None:
@@ -649,7 +695,10 @@ def resolve() -> None:
     TRIBUTE_RANGE = int(_constants.SUBMIT_GEMS_RANGE)
     CAPTURE_ROUNDS = int(_constants.CAPTURE_TIME)
     RESPAWN_ROUNDS = int(_constants.RESPAWN_TIME)
-    KILL_GOLD_ON_DEATH = int(_constants.KILL_GOLD)
+    try:
+        KILL_GOLD_ON_DEATH = int(_constants.KILL_GOLD)
+    except Exception:
+        pass
     try:
         WARD_VISION_RADIUS = int(_constants.WARD_VISION_RADIUS)
     except Exception:

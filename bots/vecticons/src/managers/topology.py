@@ -215,7 +215,7 @@ def compute_unlock_values(
 # ---------------------------------------------------------------------------
 # Draft-memory transport (format version 2).
 #
-# The unlock values are computed during the draft (10x fuel window) but the
+# The unlock values are computed during the draft (100x fuel window) but the
 # play phase runs in a different process per champion, so the values travel
 # through the 1,024-byte team draft memory - the only draft -> play channel.
 #

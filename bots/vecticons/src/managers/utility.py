@@ -1193,7 +1193,7 @@ def _fight_candidates(snap, field) -> list:
     """Fight candidates (enemy in our reach) and chase candidates.
 
     B1 (owner ruling 2026-10-26): the fight value is the WHOLE economy
-    of the kill, not the flat 50 gold the old candidate scored:
+    of the kill, not the flat kill-gold score the old candidate used:
 
       (a) IMMEDIATE  - the bag: ALL the victim's carried gems (GameRules
           "When a champion dies": the killer takes them), 1:1 in gem
@@ -1397,7 +1397,10 @@ def _kill_value(snap, enemy, ex, ey) -> float:
         except Exception:
             bag = 0
     value += float(bag)
-    value += float(config.KILL_REWARD_GOLD) * float(config.FIGHT_GOLD_VALUE)
+    # The kill gold is the ENGINE's value (cambc.constants.KILL_GOLD = 100
+    # on engine 2.0.0), resolved by config.resolve(). The old hardcoded 50
+    # was the pre-update rule value and under-priced every kill by half.
+    value += float(config.KILL_GOLD_ON_DEATH) * float(config.FIGHT_GOLD_VALUE)
     value += float(config.FIGHT_DENIAL_VALUE) * _denial_scale(snap)
     value += _capture_reset_value(snap, ex, ey)
     value += float(config.FIGHT_TIEBREAK_VALUE)
@@ -1557,9 +1560,9 @@ def _shard_progress(snap, item) -> int:
     """How many shards of this item we already carry (0..4).
 
     ``me.item_count()`` is one engine read (the carried counts indexed by
-    ItemType). The engine combines five shards into the emblem, so the
-    shard count is the progress toward the next emblem. It is only read on
-    a shop turn.
+    ItemType). The engine combines five matching shards into the emblem
+    (Greed: 25 - see config.EMBLEM_SHARD_COUNT), so the shard count is the
+    progress toward the next emblem. It is only read on a shop turn.
     """
     try:
         counts = snap.me.item_count()

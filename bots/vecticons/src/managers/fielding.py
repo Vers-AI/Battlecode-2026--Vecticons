@@ -963,7 +963,8 @@ def path_exposure(path, threat_list) -> float:
 
     `path` is the bitboard of tiles the gradient walk visited. One path tile
     is one turn of exposure; a threat covers every tile within its range
-    (GameRules: all monsters have range 3; champions use their own range).
+    (GameRules camp table: Wolf 3, Elk and Golem 4, Monolith 5; champions
+    use their own range).
     """
     if not threat_list or path is None:
         return 0.0

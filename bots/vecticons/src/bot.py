@@ -17,7 +17,7 @@ What this implementation does:
     farm_camp(c) = gems(c) * TIME_DISCOUNT ** (reach + clear)
     bank(a)      = gem_count * BANK_UTILITY_PER_GEM * TIME_DISCOUNT ** d
     recall       = (heal_value + gold_value) * TIME_DISCOUNT ** d_spawn
-    fight(e)     = (KILL_REWARD_GOLD + bag) * TIME_DISCOUNT ** turns
+    fight(e)     = (kill gold + bag) * TIME_DISCOUNT ** turns
     capture(c)   = CAPTURE_UTILITY  (always dominant when available)
 - Argmax wins. Ties fall back to baseline gate order via the dispatch
   sequence (capture > bank > recall > fight > flee > boss > farm).

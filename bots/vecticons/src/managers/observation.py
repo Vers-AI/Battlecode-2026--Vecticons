@@ -617,8 +617,8 @@ def _populate_map_cache(bot, snap, s23_cache: bool = False) -> None:
 
     S2.3: the boss "unlock value" (the reachability delta of an excluded
     group - what opens if its tiles open) is precomputed here when the draft
-    memory does not carry it (the draft normally computes it in the 10x fuel
-    window and ships it through the team draft memory).
+    memory does not carry it (the draft normally computes it in the 100x
+    fuel window and ships it through the team draft memory).
 
     ``s23_cache`` is opt-in so the frozen Stage 2 baseline keeps its
     historical engine-call profile; the S2.3 bot enables the static walls,
@@ -813,7 +813,7 @@ def _populate_map_cache(bot, snap, s23_cache: bool = False) -> None:
                 pass
 
     # S2.3: boss unlock values (reachability delta). Prefer the values the
-    # draft computed in its 10x fuel window (they travel through the team
+    # draft computed in its 100x fuel window (they travel through the team
     # draft memory); fall back to computing them here (first play turn, 2x
     # fuel) when the draft memory carries none.  This is deliberately
     # opt-in: the frozen baseline must not pay the static topology cost or
@@ -1197,8 +1197,9 @@ def build_group_meta(groups, s23_cache: bool = False) -> dict:
     picks were nearest-first by construction.
 
     S2.3 fuel: `camp.base_stats()` is a per-CAMP-TYPE design lookup
-    (`_bc.camp_design(type)`), so it is cached per type - five calls for the
-    whole map instead of one per camp. On a 118-camp map that was 1.5M fuel
+    (`_bc.camp_design(type)`), so it is cached per type - one call per kind
+    (six kinds) for the whole map instead of one per camp. On a 118-camp map
+    that was 1.5M fuel
     of the first play turn's budget (the map cache build measured 3.8M
     against the 5M first-turn budget).
 

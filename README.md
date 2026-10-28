@@ -130,5 +130,5 @@ Full operating rules: [`AGENT.md`](AGENT.md).
 
 **Key decisions.** One currency (gem-equivalents) for every candidate, so subsystems compare directly; honest distances from a shared engine `DistanceField`, so unreachable targets score 0 instead of needing special cases; one gated campaign per submission, so a stage is verified once, on one instrument.
 
-**Limitations.** This is a single-sprint project, not a library — no public API, no installable package, no test suite beyond the campaign harness. The champion pool is 12 playable types with two special cases (Prism, Cassi & Issac) still un-scored. Combined-arms scoring and the telemetry-v2 viewer schema are open. The vault mirror of the spec is re-synced by hand, so it can lag this file.
+**Limitations.** This is a single-sprint project, not a library — no public API, no installable package, no test suite beyond the campaign harness. The champion pool is 13 playable types with three special cases (Prism, Cassi & Issac, Heart of Ruin) still un-scored. Combined-arms scoring and the telemetry-v2 viewer schema are open. The vault mirror of the spec is re-synced by hand, so it can lag this file.
 

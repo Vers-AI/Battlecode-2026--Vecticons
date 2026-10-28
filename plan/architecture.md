@@ -6,7 +6,7 @@
 **Map pool:** **70** maps in `maps/` (Patch-4: the kept-40 sha-unchanged, 30 new sha-verified). `.cambc/map-pool.json` lists them.
 **Game rules:** `ref/GameRules.md`, `ref/BotAPIPython.md` (repo). Every number below cites those files.
 **Vault mirror:** the owner's Obsidian note "Vecticons Bot Architecture (Battlecode 2026a)" mirrors this file; this copy is canonical for coding work. **Re-sync the mirror after any change here.**
-**Doc status:** synced 2026-10-28 to the shipped S2.4 + F1-closeout state. Sections that describe Sprint 1 are kept as a historical record and labelled as such; everything else describes what the bot does today.
+**Doc status:** synced 2026-10-28 to the shipped S2.4 + F1-closeout state, and re-synced the same day to the updated `ref/GameRules.md` (kill gold 100, ward charge 10 turn ends, lock = 5 attacks, draft turn 100× fuel, the Golem, Heart of Ruin, the revised emblem passives). Sections that describe Sprint 1 are kept as a historical record and labelled as such; everything else describes what the bot does today.
 
 ---
 
@@ -20,7 +20,7 @@ The whole game is denominated in one currency (gems), so the bot's core loop is:
 
 **Key architectural claim:** if each agent maximizes well-formed local utility, synergy emerges *without* coordination. The draft plan pre-commits assignments; geometry deconflicts greedy agents. The 8-byte channel stays nearly silent — a feature, not a failure.
 
-**What the currency buys us.** Every score in the system is in *gem-equivalents*, so candidates from different subsystems are directly comparable: 50 gold of kill reward is `50 × GOLD_TO_GEM`; a shard's permanent stat gain is `SHARD_STAT_VALUE`; an altar lock's denial value is `LOCK_DENIAL_VALUE`. Nothing is compared across units.
+**What the currency buys us.** Every score in the system is in *gem-equivalents*, so candidates from different subsystems are directly comparable: 100 gold of kill reward is `100 × GOLD_TO_GEM`; a shard's permanent stat gain is `SHARD_STAT_VALUE`; an altar lock's denial value is `LOCK_DENIAL_VALUE`. Nothing is compared across units.
 
 ---
 
@@ -28,7 +28,7 @@ The whole game is denominated in one currency (gems), so the bot's core loop is:
 
 | Manager | Module | Runs | Job |
 |---|---|---|---|
-| **Draft** | `draft.py` | once, pre-match | Pick champions; write the 1,024-byte plan; precompute the map cache (camps, altars, spawns, distances) with full visibility + 10× fuel |
+| **Draft** | `draft.py` | once, pre-match | Pick champions; write the 1,024-byte plan; precompute the map cache (camps, altars, spawns, distances) with full visibility + 100× fuel |
 | **Observation/State** | `managers/observation.py` | per-turn, cheap | Assemble facts: HP, gold, carried gems, position, vision, draft cache. No decisions. |
 | **Utility/Decision** | `managers/utility.py` | per-turn | Generate candidate actions, score each, argmax |
 | **Execution** | `managers/execution.py` | per-turn | Chosen action → SDK calls (`reachable_tiles()`, `movement_mask()` — never hand-rolled A*) |
@@ -96,7 +96,7 @@ offset  size  field
 
 ### Stage 1 — Draft manager
 
-Pick order: **Ryth → Stellar → Vesper Vale**; if `team_size() == 5`, append **Varg, then Willow**. No other conditional logic. Precompute camp group tiles, altar positions, per-zone camp lists at draft (full map visible, 10× fuel) into the Stage 0 layout.
+Pick order: **Ryth → Stellar → Vesper Vale**; if `team_size() == 5`, append **Varg, then Willow**. No other conditional logic. Precompute camp group tiles, altar positions, per-zone camp lists at draft (full map visible, 100× fuel) into the Stage 0 layout.
 
 *Done when:* a match runs on the whole pool, zero exceptions in team stdout; `team_size()` logged during draft; draft memory ≤ 1,024 bytes; `cambc build --release` passes.
 
@@ -198,7 +198,7 @@ The read side (`intelligence.fold_ally_intel`) turns the beacons into facts: `sn
 
 All tunables live in `config.py`; every value carries a source citation (GameRules / champion stat tables / mechanics) or a `PLACEHOLDER` tag. `PLACEHOLDER` = first-pass value, not final; **the F4 tuning campaign exists to replace every one of them.**
 
-**Do not read `cambc.constants` at module import time** — the wasm preload phase has no engine context. `TRIBUTE_RANGE`, `CAPTURE_ROUNDS`, `RESPAWN_ROUNDS` and `KILL_GOLD_ON_DEATH` are resolved lazily via `resolve()` on first use.
+**Do not read `cambc.constants` at module import time** — the wasm preload phase has no engine context. `TRIBUTE_RANGE`, `CAPTURE_ROUNDS`, `RESPAWN_ROUNDS` and `KILL_GOLD_ON_DEATH` are resolved lazily via `resolve()` on first use. `KILL_GOLD_ON_DEATH` (the engine reads 100 on engine 2.0.0) is the **single source** for the kill gold in the fight candidate; `WARD_COOLDOWN` (10 owner turn ends) is the ward's trinket charge. Both constants are the documented rule values as their defaults — the engine's numbers replace them on the first `resolve()`.
 
 ### Economy and utility core
 `BANK_THRESHOLD 1` · `TIME_DISCOUNT 0.99` · `BANK_UTILITY_PER_GEM 1.0` · `GOLD_TO_GEM 0.02` · `RECALL_UTILITY 200.0` · `RECALL_HEAL_VALUE 10.0` · `RECALL_GOLD_VALUE 0.05` · `RECALL_GOLD_TRIGGER 150` · `RECALL_GOLD_CAP 300` · `RECALL_INTERRUPT_RISK 0.5` · `RECALL_HP_FRAC 0.35` · `SAFETY_HP_FRAC 0.25` · `DEATH_RISK_BASE 0.05`
@@ -221,10 +221,12 @@ All tunables live in `config.py`; every value carries a source citation (GameRul
 `ENEMY_TRACK_TTL 60` · `SIGNAL_ALTAR_CONTEST_RADIUS 2` · `BANK_CONTEST_PENALTY 0.5` · `REGION_RISK_FACTOR 0.85`
 
 ### Shopping, emblems, locks, wards
-`CHAMPION_STAT_PRIORITY` (12 champions) · `CHAMPION_EMBLEM_FAMILY` (12 champions) · `_POWER_SHARD_BY_STAT` · `SHARD_STAT_VALUE 1.0` · `EMBLEM_COMPLETION_VALUE 3.0` · `EMBLEM_SHARD_COUNT 5` · `CONSUMABLE_RESERVE_GOLD 20` · `CONSUMABLE_RESERVE_VALUE 0.5` · `ALTAR_LOCK_COST 10` · `ALTAR_LOCK_RADIUS 2` · `LOCK_DENIAL_VALUE 2.0` · `LOCK_TRAFFIC_DIRECT 3.0` · `LOCK_TRAFFIC_REGION 1.0` · `LOCK_TRAFFIC_FOG 1.0` · `LOCK_FOG_RADIUS 4` · `WARD_VISION_RADIUS 6` · `WARD_PLACEMENT_RADIUS 2` · `WARD_CAMP_WEIGHT 3.0` · `WARD_PATH_WEIGHT 1.0` · `WARD_ALTAR_WEIGHT 2.0` · `WARD_CANDIDATE_CAP 5` · `WARD_COOLDOWN_ROUNDS 1`
+`CHAMPION_STAT_PRIORITY` (13 champions) · `CHAMPION_EMBLEM_FAMILY` (13 champions) · `_POWER_SHARD_BY_STAT` · `SHARD_STAT_VALUE 1.0` · `EMBLEM_COMPLETION_VALUE 3.0` · `EMBLEM_SHARD_COUNT 5` · `CONSUMABLE_RESERVE_GOLD 20` · `CONSUMABLE_RESERVE_VALUE 0.5` · `ALTAR_LOCK_COST 10` · `ALTAR_LOCK_RADIUS 2` · `LOCK_DENIAL_VALUE 2.0` · `LOCK_TRAFFIC_DIRECT 3.0` · `LOCK_TRAFFIC_REGION 1.0` · `LOCK_TRAFFIC_FOG 1.0` · `LOCK_FOG_RADIUS 4` · `WARD_VISION_RADIUS 6` · `WARD_PLACEMENT_RADIUS 2` · `WARD_CAMP_WEIGHT 3.0` · `WARD_PATH_WEIGHT 1.0` · `WARD_ALTAR_WEIGHT 2.0` · `WARD_CANDIDATE_CAP 5` · `WARD_COOLDOWN_ROUNDS 10`
 
 ### Shopping rules
-Only the **completed** emblem grants the family passive (GameRules:290-294); a family shard alone grants nothing beyond its stat. `config.power_shard_for` is the one mapping and `bot.buy_items` is the one buyer. Shards are bought only when the gold covers the shard **and** the consumable reserve (a lock or a teleport crystal). Shopping is legal on a spawn tile **and** during the 60-round dead window.
+Only the **completed** emblem grants the family passive (GameRules:301-316); a family shard alone grants nothing beyond its stat. `config.power_shard_for` is the one mapping and `bot.buy_items` is the one buyer. Shards are bought only when the gold covers the shard **and** the consumable reserve (a lock or a teleport crystal). Shopping is legal on a spawn tile **and** during the 60-round dead window.
+
+`EMBLEM_SHARD_COUNT 5` is the shard count that combines into an emblem, not the stat value the emblem is worth: Power's emblem *counts as* six shards' worth of the chosen stat. The engine agrees — every family's shard reports `combine_count() == 5` (Greed: 25).
 
 ### Known config smell (logged, not fixed)
 `FIGHT_WIN_FLOOR` is defined twice — `0.15` at the utility section and `0.02` lower down. Python takes the later definition, so the **effective value is 0.02**; the `0.15` line is dead. `FLEE_BASE_VALUE` is also defined twice, with the same value, so it is harmless. Worth collapsing in the F4 tuning pass, which is where `config.py` is meant to be re-enumerated anyway. The chase stickiness ships as `CHASE_COMMIT_FACTOR 2.0` (the score multiplier while committed) **and** `CHASE_COMMIT_MIN 0.5` (the base-score floor below which the commitment ends) — both `51f81a8`, both PLACEHOLDER, both in the F4 re-enumeration set.
@@ -271,7 +273,7 @@ python scripts\run_pool.py --project-root <tree> --bot-a bots/vecticons --bot-b 
 - **Per-champion vision (no ally sharing):** every observation fact is local. Vision is NOT shared between allies — coordinate through the shared memory. Movement into unseen occupants returns `False` — retry another step, never raise.
 - **Determinism:** WASI randomness is zero in matches; seed the PRNG from the spawn tile + champion start position. Same seed ⇒ same behaviour. Keep decision order stable.
 - **Fuel budget:** Python gets ~25× the C++ limit. Budget per turn and short-circuit before out-of-fuel. Check `cambc.fuel_remaining()` before expensive planning. Bots resume from suspension next round — but do NOT rely on this: always make per-turn work idempotent.
-- **First-turn budget:** 10× fuel on the draft turn, 2× on the first play turn. Cache anything reusable (camp layout union, spawn mask, altar approach tiles) on those turns — `bot.camp_layout` is the model.
+- **First-turn budget:** 100× fuel on the draft turn, 2× on the first play turn. Cache anything reusable (camp layout union, spawn mask, altar approach tiles) on those turns — `bot.camp_layout` is the model.
 - **Competition safety:** no file I/O inside `play_turn()`. Treat logging via `print` (captured to the replay, `--log-limit` capped) only. Wrap dev-only analytics in `cambc.debug_block(lambda: ...)` — the platform builds with `--release`, so debug blocks are skipped entirely. **Never put game-affecting logic inside `debug_block`.**
 
 ---
@@ -280,7 +282,7 @@ python scripts\run_pool.py --project-root <tree> --bot-a bots/vecticons --bot-b 
 
 The bot drafts **Ryth → Stellar → Vesper Vale**, appending **Varg, then Willow** at `team_size() == 5`. `draft.py` queries `team_size()`, never hardcodes it.
 
-**The 12 playable types**, with their stat priority and emblem family (the two maps the bot uses to shop):
+**The 13 playable types**, with their stat priority and emblem family (the two maps the bot uses to shop):
 
 | Champion | Stat | Emblem family |
 |---|---|---|
@@ -296,8 +298,9 @@ The bot drafts **Ryth → Stellar → Vesper Vale**, appending **Varg, then Will
 | Tavi | FOCUS | POWER |
 | Cassi | STRENGTH | POWER |
 | Issac | STRENGTH | POWER |
+| Heart of Ruin | STRENGTH | MONSTER |
 
-**Deferred special cases (backlog B2).** **Prism** wants a carried-gems term in her personal utility (Patch-4 buffed her 0.2→1.5 focus/gem). **Cassi & Issac** are two linked instances — one draft pick, two bodies, linked fate — and need coordinated handling (never split far; treat as one body for engagement math). The shopping maps above already cover both champions' shard and emblem behaviour, but their *scoring* is not special-cased yet.
+**Deferred special cases (backlog B2).** **Prism** wants a carried-gems term in her personal utility (Patch-4 buffed her 0.2→1.5 focus/gem). **Cassi & Issac** are two linked instances — one draft pick, two bodies, linked fate — and need coordinated handling (never split far; treat as one body for engagement math). **Heart of Ruin** (the 2026-10-28 roster addition) converts missing health into damage (up to +50%), and the enemy threat model reads nominal `strength()` — so a wounded Heart of Ruin is under-priced in the fight math until the threat term scales her output. The shopping maps above already cover every champion's shard and emblem behaviour, but these *scoring* cases are not special-cased yet.
 
 **Sustain.** Willow is the only healer; sustain = recall + shopping rules inside the utility function. Healing enters when combined-arms scoring does (backlog B1).
 
