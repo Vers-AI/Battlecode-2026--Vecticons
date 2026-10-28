@@ -1,9 +1,12 @@
-# Vecticons Sprint 1 — Build Spec
+# Vecticons — Build Spec
 
-**Event:** Cambridge Battlecode 2026a · Sprint 1 locks Sun 18 Oct 23:59 BST
-**Repo:** Vers-AI/Battlecode-2026--Vecticons · engine cambc 2.2.4 (`pip install cambc==2.2.4`; primary checkout's venv at `/mnt/forge/repos/Battlecode-2026--Vecticons/.venv/bin/cambc`)
+**Event:** Cambridge Battlecode 2026a (`cambc2026a`) · the project targets the ladder and the contest.
+**Repo:** Vers-AI/Battlecode-2026--Vecticons
+**Toolchain:** `cambc` CLI **4.0.0** / engine **2.0.0** (`pip install cambc==4.0.0`). `cambc.toml` pins `sdk_version = "4.0.0"`, which is what the bot is compiled against. Engine build hash on this line: `85aa7167b44db7cea97509f55e997750520e33d644e9f4f90d6128c50eba1d21`.
+**Map pool:** **70** maps in `maps/` (Patch-4: the kept-40 sha-unchanged, 30 new sha-verified). `.cambc/map-pool.json` lists them.
 **Game rules:** `ref/GameRules.md`, `ref/BotAPIPython.md` (repo). Every number below cites those files.
-**Vault mirror:** the owner's Obsidian note "Vecticons Bot Architecture (Battlecode 2026a)" mirrors this file; this copy is canonical for coding work.
+**Vault mirror:** the owner's Obsidian note "Vecticons Bot Architecture (Battlecode 2026a)" mirrors this file; this copy is canonical for coding work. **Re-sync the mirror after any change here.**
+**Doc status:** synced 2026-10-28 to the shipped S2.4 + F1-closeout state. Sections that describe Sprint 1 are kept as a historical record and labelled as such; everything else describes what the bot does today.
 
 ---
 
@@ -11,55 +14,71 @@
 
 The whole game is denominated in one currency (gems), so the bot's core loop is: **score every candidate action in gem-equivalents-per-turn, take the argmax.**
 
-- Score = value ÷ (turns to realize) — time-discounted utility (the GDC time-to-utility notes)
+- Score = value ÷ (turns to realize) — time-discounted utility
 - Carried-gem risk: value of farming longer vs. risk of dying and losing the carry → principled banking thresholds, not constants
-- Region risk: gems × P(survive) — crude constant per region for Sprint 1, estimated later
+- Region risk: gems × P(survive) — per-region constant, estimated later
 
 **Key architectural claim:** if each agent maximizes well-formed local utility, synergy emerges *without* coordination. The draft plan pre-commits assignments; geometry deconflicts greedy agents. The 8-byte channel stays nearly silent — a feature, not a failure.
 
----
-
-## Manager architecture (minimum viable set)
-
-| Manager | Runs | Job |
-|---|---|---|
-| **Draft** | once, pre-match | Pick champions; write the 1,024-byte plan; precompute map cache (camps, altars, spawns, distances) with full visibility + 10× fuel |
-| **Observation/State** | per-turn, cheap | Assemble facts: HP, gold, carried gems, position, vision, draft cache. No decisions. |
-| **Utility/Decision** | per-turn | Generate candidate actions, score each, argmax |
-| **Execution** | per-turn | Chosen action → SDK calls (`reachable_tiles()`, `movement_mask()` — never hand-rolled A*) |
-
-Shopping + combat start as *rules inside the utility function* (recall's score spikes when HP low or gold high), promoted to managers when they earn their own opinions.
-
-**Build order:** draft manager + map cache → state manager → **hardcoded baseline loop** (nearest killable camp → clear → capture → carry → tribute) as the measurable floor → *then* replace hardcoding with the utility layer, A/B against the baseline.
+**What the currency buys us.** Every score in the system is in *gem-equivalents*, so candidates from different subsystems are directly comparable: 50 gold of kill reward is `50 × GOLD_TO_GEM`; a shard's permanent stat gain is `SHARD_STAT_VALUE`; an altar lock's denial value is `LOCK_DENIAL_VALUE`. Nothing is compared across units.
 
 ---
 
-## File structure (verified 2026-10-17, server test)
+## Manager architecture
 
-The wasm sandbox resolves imports **only within `src/`**. Verified empirically: sibling folders at bot root (`Managers/`, `Observations/`) raise `ModuleNotFoundError` even with `sys.path` insertion; subfolders inside `src/` work. The scaffold's root-level `Managers/` and `Observations/` folders are unimportable — delete them.
+| Manager | Module | Runs | Job |
+|---|---|---|---|
+| **Draft** | `draft.py` | once, pre-match | Pick champions; write the 1,024-byte plan; precompute the map cache (camps, altars, spawns, distances) with full visibility + 10× fuel |
+| **Observation/State** | `managers/observation.py` | per-turn, cheap | Assemble facts: HP, gold, carried gems, position, vision, draft cache. No decisions. |
+| **Utility/Decision** | `managers/utility.py` | per-turn | Generate candidate actions, score each, argmax |
+| **Execution** | `managers/execution.py` | per-turn | Chosen action → SDK calls (`reachable_tiles()`, `movement_mask()` — never hand-rolled A*) |
+| **Fielding** | `managers/fielding.py` | per-turn | The shared `DistanceField` infrastructure — honest distances, two wall sets |
+| **Intelligence** | `managers/intelligence.py` | per-turn + persistent | Enemy fog memory; the shared-memory beacon protocol |
+| **Scouting** | `managers/scouting.py` | per-turn | The ward mini-argmax (a free parallel action) |
+| **Topology** | `managers/topology.py` | draft-time | Static reachability analysis: boss unlock values, the draft-memory unlock section |
+
+Shopping, combat, wards and locks live as **rules inside the utility function** and were promoted to their own modules only once they earned opinions of their own (shopping and wards became scored candidates in S2.4; the beacon protocol became a module in S2.1).
+
+**Build order (historical):** draft manager + map cache → state manager → hardcoded baseline loop (the measurable floor) → the utility layer, A/B against the baseline.
+
+---
+
+## File structure
+
+The wasm sandbox resolves imports **only within `src/`**. Verified empirically: sibling folders at bot root raise `ModuleNotFoundError` even with `sys.path` insertion; subfolders inside `src/` work.
 
 ```
 bots/vecticons/
   src/
-    main.py            # entry point. Dispatch loop: is_draft() -> draft.py, else bot.play_turn(). Calls cambc.end_turn().
-    draft.py           # draft-phase picks + draft memory write
+    main.py            # entry point. Dispatch: is_draft() -> draft.py, else bot.play_turn(). Calls cambc.end_turn().
+    draft.py           # draft-phase picks + draft memory write (v2 payload, incl. the boss unlock section)
     bot.py             # per-champion turn logic — ALWAYS the shipped implementation
     bot_baseline.py    # frozen copy of the Stage 2 baseline, kept for A/B (created in Stage 3)
     config.py          # ALL tunable constants. No magic numbers in any other file.
-    randomness.py      # seeded PRNG (copy starter's; WASI randomness is zero)
+    randomness.py      # seeded PRNG (WASI randomness is zero)
     managers/
       __init__.py
-      observation.py    # per-turn state assembly (facts only, no decisions) — renamed from knowledge.py 2026-10-21
+      observation.py   # per-turn state assembly (facts only, no decisions)
       utility.py       # candidate action scoring, argmax
       execution.py     # action -> SDK calls (SDK pathing helpers only)
+      fielding.py      # shared per-turn DistanceField infrastructure (S2.3)
+      intelligence.py  # enemy fog memory + the S2.1 beacon protocol
+      scouting.py      # the ward mini-argmax (S2.4)
+      topology.py      # static reachability / boss unlock values (S2.3)
   pyrightconfig.json   # keep: extraPaths ../../sdk/python
 ```
 
 Import rule: `from managers.utility import ...` (src-relative) only. No imports from bot root.
 
-## Stage 0 — Draft memory format (frozen)
+---
 
-Little-endian. Written by draft.py during draft phase. Max 1,024 bytes. Sprint 1 layout:
+## Stage record — Sprint 1 (complete, locked 18 Oct 2026)
+
+Kept for reference: the frozen definitions each stage shipped. **This is not the current behaviour** — see the sections below.
+
+### Stage 0 — Draft memory format v1 (frozen)
+
+Little-endian, written by `draft.py` during the draft phase, max 1,024 bytes.
 
 ```
 offset  size  field
@@ -75,149 +94,244 @@ offset  size  field
               +4-6 reserved 0
 ```
 
-## Stage 1 — Draft manager
+### Stage 1 — Draft manager
 
 Pick order: **Ryth → Stellar → Vesper Vale**; if `team_size() == 5`, append **Varg, then Willow**. No other conditional logic. Precompute camp group tiles, altar positions, per-zone camp lists at draft (full map visible, 10× fuel) into the Stage 0 layout.
 
-**Done when:** a match runs on all 17 maps, zero exceptions in team stdout; `team_size()` value logged during draft; draft memory submitted ≤ 1,024 bytes; `cambc build --release` passes.
+*Done when:* a match runs on the whole pool, zero exceptions in team stdout; `team_size()` logged during draft; draft memory ≤ 1,024 bytes; `cambc build --release` passes.
 
-## Stage 2 — Knowledge manager + baseline loop (hardcoded)
+### Stage 2 — Observation manager + baseline loop
 
-observation.py (was knowledge.py, renamed 2026-10-21) assembles per-turn facts (position, HP, gold, gems carried, visible camps/enemies/altars, draft plan). bot.py runs the baseline loop:
+`observation.py` assembles per-turn facts. `bot.py` ran the baseline loop: skip if channeling/dead; shop on spawn; recall below `RECALL_HP_FRAC`; attack an enemy in range; bank at `gem_count ≥ BANK_THRESHOLD`; else farm the nearest killable camp.
 
-1. If channeling (recall/tribute/teleport), dead, or cannot act: return.
-2. If on spawn: buy shards per `CHAMPION_STAT_PRIORITY`.
-3. If HP < `RECALL_HP_FRAC` and not on spawn: recall.
-4. If enemy champion in attack range: attack it.
-5. If `gem_count >= BANK_THRESHOLD`: path to nearest unlocked altar (skip `vision.has_altar_lock` altars), submit in range.
-6. Else: farm nearest killable camp.
+**Killable camp (amended 2026-10-21):** a camp group whose monsters' total HP ≤ `KILLABLE_HP_CAP`, excluding Monolith (20,000 HP). Visible groups are gated by current HP; **unseen groups are gated by cached static base HP** (draft-precomputed into `group_meta`, engine-handle keyed) — the gate must not depend on who can see the group. The filter binds ALL attack paths, including the opportunistic in-range attack.
 
-**Killable camp (v1, amended 2026-10-21 — candidate-gate consistency):** camp group whose monsters' total HP ≤ `KILLABLE_HP_CAP`, excluding Monolith (20,000 HP). Visible groups are gated by current HP; **unseen groups are gated by cached static base HP** (draft-precomputed into group_meta, engine-handle keyed) — the gate must not depend on who can see the group. Root cause: a 5,040-HP pack flipped target/not-target across a bush vision boundary on 00ambush, oscillating the argmax at the bush line for 2,000 rounds with zero actions. The original v1 wording's draft-zone qualifier remains unimplemented (no consumer). **The filter binds ALL attack paths**, including the opportunistic in-range attack (lost_world's bait gem clusters woke the 200-strength Monolith through the unfiltered path — every death on both teams, 2,000 rounds, was that Monolith).
+*Done when:* 10 named maps, zero exceptions, and the stats output shows ≥1 completed clear→capture→tribute cycle per match.
 
-**Done when:** 10 matches vs starter-python — maps: the first 10 of the 17-map pool alphabetically (ambush, collision, contest, corners, eight, elkring, expanse, fragment, interlock, lanes) — zero exceptions, and the stats output shows ≥1 completed clear→capture→tribute cycle per match. First harness task: run one `--statistics stats.json --json` match, record the actual emitted field names here, and restate the criteria against those fields.
+**The stats.json schema (probed 2026-10-17, re-verified on engine 2.0.0):** top-level keys `championTimelines`, `champions`, `diagnostics`, `events`, `formatVersion`, `heatmaps`, `jsonFormatVersion`, `match`, `roster`, `teamTimelines`, `teams`.
 
-### Actual emitted stats.json fields (probed 2026-10-17 against cambc 2.2.4, map=ambush)
+- `match.{roundsCompleted, outcome, seed, width, height, engineVersion, engineBuildHash, mapHash, …}` — `outcome` ∈ `teamA|teamB|draw`
+- `diagnostics.botFaults.{teamA, teamB}` — must be `0` both sides
+- `diagnostics.codes` — engine error codes
+- `diagnostics.detailedCaptureComplete` — events/timelines are only complete when `True`
+- `teams[i].submittedGems` — **a string int**; cast at parse
+- `roster.champions[i].{id, name, team, draftPick}`, `roster.draft`
+- `champions[i].metrics.{collectedGems, deaths, earnedGold, kills, submittedGems, …}` (all strings)
+- `events[]` — `{kind, owner:{id,kind,name,team}, entries:[{amount,context,target,timestamp,value,x,y}]}`; observed kinds: `death, kill, assist, wardPlacement, buyItem, buyConsumable, sellItem, campClear, gemSubmission, gemCollection, gemLoss, itemCombination, botFault, fuelExhausted, resignation`
 
-Top-level keys: `championTimelines`, `champions`, `diagnostics`, `events`, `formatVersion` (=1.0), `heatmaps`, `jsonFormatVersion` (=1.0), `match`, `roster`, `teamTimelines`, `teams`.
+### Stage 3 — Utility layer
 
-- `match.{roundsCompleted, roundsStarted, outcome, seed, width, height, engineBuildHash, engineVersion, finalInput, finalRoundPartial, finalSubstep, mapHash, metricSemanticsVersion}` — match metadata; `outcome` ∈ `"teamA"|"teamB"|"draw"` (winner; values observed: `"teamB"` with a `"Team B (starter-python) wins: reached 1000 gems in round 1415"` reason line printed by the CLI).
-- `diagnostics.botFaults.{teamA, teamB}` — integers (count of `botFault` events per team). Sprint 2 done-when: this is **0** for both sides.
-- `diagnostics.codes` — list of engine error codes encountered.
-- `diagnostics.detailedCaptureComplete` — boolean; events/timelines are only complete when `True`.
-- `teams[i].submittedGems` — string int (sentinel-style), team gem total.
-- `roster.champions[i].{id, name, team, draftPick}` — per-champion identity.
-- `roster.draft` — list of `{champion, team}` in pick order.
-- `champions[i].metrics.{assists, collectedGems, deaths, earnedGold, gems, gold, kills, monsterDamageDone, monsterDamageTaken, saleRefunds, spentGold, submittedGems, championDamageDone, championDamageTaken, healingDone, healingReceived, shieldingDone}` — per-champion aggregate metrics (numeric, all `str` for integer columns).
-- `champions[i].items`, `itemsBought`, `consumables`, `consumablesBought` — inventory deltas.
-- `events[]` — list of `{kind, owner:{id, kind, name, team}, entries:[{amount, context, target, timestamp:{round, phase, substep, input, ordinal}, value, x, y}, ...]}`.
-- `events[].kind` observed: `death, kill, assist, wardPlacement, buyItem, buyConsumable, sellItem, campClear, gemSubmission, gemCollection, gemLoss, itemCombination, botFault, fuelExhausted, resignation` (one entry per champion).
-- `championTimelines`, `teamTimelines`, `heatmaps` — lists of per-tick data (large; we ignore in Sprint 1).
-
-### Restated criteria against the actual fields
-
-For **Stage 2 done-when**, run `cambc run bots/vecticons bots/starter-python --map <m> --rounds 2000 --statistics stats.json --json` on the 10 named maps (ambush, collision, contest, corners, eight, elkring, expanse, fragment, interlock, lanes) and require each match's `stats.json` to show:
-
-1. **Zero bot faults** — `diagnostics.botFaults.teamA == 0` AND `team-b.stdout` contains no `bot error` line.
-2. **Zero exceptions in team-a stdout** — `team-a.stdout` contains no `bot error` line.
-3. **Stage 2 cycle** — there exists at least one `gemSubmission` event on `events` whose `owner.team == "teamA"` (i.e. ≥1 tribute completion by our team), AND there exists at least one `campClear` event on `events` whose `owner.team == "teamA"` AND `entries` is non-empty (clear with non-zero entries). Together this proves a clear → capture → tribute cycle occurred for team A.
-4. **`cambc build --release` passes** before any of the matches.
-
-Cycle detection is satisfied even for partially-completed matches so long as the gem-submitted entry's `value` (gems submitted) is > 0. If a map's seed legitimately never yields a tribute within 2000 rounds, the run is reported as a Stage-2 cycle miss and we log it (does not block other maps).
-
-## Stage 3 — Utility layer
-
-First action: copy Stage 2's bot.py to bot_baseline.py (frozen A/B reference). Then rewrite bot.py's decision steps with scoring; main.py and the entry contract never change.
-
-Candidate gate — S2.3 SUPERSEDES the Stage 2 invariant (amended 2026-10-24 to match shipped code, per the board rule that the amendment rides the S2.3 change): excluded groups (Monolith, over-cap mega-packs) are no longer gate-invisible — they are SCORED fight candidates via boss graduation (utility `_boss_candidates`; owner ruling 2026-10-22: drops + unlock_value x discount^turns x P(survive); early-game boss math prices itself out by arithmetic, not by gate; `KILLABLE_HP_CAP` is a floor on hopeless fights, not a candidacy exclusion). Distance is honest, not Manhattan: one shared per-turn DistanceField (managers/fielding.py) over TWO wall sets (owner-corrected ruling 2026-10-23) — the SCORING field uses terrain + the static overlay of excluded groups' spawn tiles (sealed doors score unreachable: bank candidates behind them score 0 by arithmetic, verified on 01boss_battle — zero courier deaths), and the BOSS-ENGAGEMENT field uses terrain-only with boss tiles as destinations. Reachability still gates farm candidacy (walk-reachable or scored 0).
-
-Scoring, in config.py units:
-- `farm_camp(camp)` = `gems × TIME_DISCOUNT ** turns_to_reach_and_clear`
-- `bank(altar)` = `gem_count × BANK_UTILITY_PER_GEM` when `gem_count ≥ BANK_THRESHOLD`
-- `recall` = `RECALL_UTILITY` when `hp_frac < RECALL_HP_FRAC`
-- `attack_enemy` = `KILL_REWARD_GOLD × TIME_DISCOUNT ** turns_to_kill_estimate`
-
-Argmax wins; ties break by config.py priority order. A/B = run the same map set against this repo at the Stage 3 commit vs the bot_baseline.py state (git checkout), not runtime branching.
-
-**Done when:** over the 17-map pool (deterministic engine — same bots + map = same result), the utility bot's per-map record vs starter-python ≥ the baseline bot's record. Report the per-map table.
-
-## config.py (all tunables; source or PLACEHOLDER tag on every value)
-
-```python
-# Sources: GameRules camp table, champion stats, mechanics sections.
-# PLACEHOLDER = first-pass value for A/B tuning; not final.
-
-BANK_THRESHOLD = 1           # PLACEHOLDER. gems; tribute channel = ceil(gems/10) turns.
-                              # Starter bot banks at gems > 0; Stage 2 baseline matches that to
-                              # prove the cycle works. Stage 3 utility layer re-tunes via
-                              # death-risk scoring.
-TIME_DISCOUNT = 0.9          # PLACEHOLDER. per-turn multiplier
-RECALL_HP_FRAC = 0.35        # from starter bot heuristic
-KILLABLE_HP_CAP = 5000       # PLACEHOLDER. > elk pack total HP, < Monolith 20k. Stage 2
-                              # baseline needs the floor to engage the common wolf/elk packs
-                              # or the bot never starts a cycle. Stage 3 utility layer keeps
-                              # the same value to gate the argmax (Monolith trap).
-DEATH_RISK_BASE = 0.05       # PLACEHOLDER. unused Sprint 1
-BANK_UTILITY_PER_GEM = 1.0  # PLACEHOLDER
-RECALL_UTILITY = 50.0       # PLACEHOLDER
-KILL_REWARD_GOLD = 50        # GameRules "When a champion dies"
-TRIBUTE_RANGE = None         # set at import from cambc.constants.SUBMIT_GEMS_RANGE
-CAPTURE_ROUNDS = 5           # GameRules capture section
-RESPAWN_ROUNDS = 60          # GameRules "When a champion dies"
-
-CHAMPION_STAT_PRIORITY = {   # GameRules champion stat tables
-    "Ryth": "HEALTH", "Stellar": "FOCUS", "Vesper Vale": "STRENGTH",
-    "Varg": "STRENGTH", "Willow": "FOCUS",
-}
-```
-
-## Build sequence and verification commands
-
-```
-cambc run bots/vecticons bots/starter-python --map <m> --rounds 2000 --statistics stats.json --json
-cambc run bots/vecticons bots/starter-python --map <m> --release   # platform-faithful; run before any submission
-cambc build --release                                               # submission gate
-```
-17 maps in `maps/`. Replays: `replays/*.repl26a` zip bundles (replay + per-team stdout/debug/fuel).
+The baseline was frozen as `bot_baseline.py`, then `bot.py` became candidate generation + argmax. The Stage 3 candidate gate (exclude Monolith and over-cap packs from candidacy) was **superseded by S2.3** — see *Candidate model* below: excluded groups are now *scored* fight candidates that price themselves out by arithmetic rather than by a gate.
 
 ---
 
-## Memory & vision model (implementation constraints)
+## Draft memory (current)
 
-- **Draft memory (1,024 B, pre-match, read-only in match):** Stage 0 format above. Read via `cambc.DraftMemoryBuffer()` per instance.
-- **8-byte shared memory:** the *only* live channel between instances. Byte ownership map written at draft (Stage 0 byte 2) so Sprint 2 signaling needs no format change. **Sprint 1: unused** — the channel stays clear by design; reserve bandwidth.
-- **Per-champion vision (no ally sharing):** every Observation-manager fact is local. Movement into unseen occupants returns `False` — retry another step, never raise.
+The payload is the frozen Stage 0 v1 header plus pick records, **plus an S2.3 extension**:
+
+```
+0       1     format version = 2   (topology.DRAFT_MEMORY_VERSION; 1 when S2.3 is off)
+1       1     pick count
+2       1     shared-memory ownership bit map
+3       1     reserved 0
+4       7*n   pick records (as Stage 0)
+4+7n    ...   boss unlock section (S2.3): a count byte, then per-group
+              (group key + reachability-delta value) for the excluded groups
+```
+
+The unlock section is computed **once per draft process** and cached at module level — the S2.1 fix. Re-deriving it per pick is what exhausted the draft fuel wall on ~15/40 maps.
+
+The section is skipped when the draft turn is out of fuel (`_UNLOCK_MIN_FUEL`), degrading to an empty section rather than failing the draft. **Always pick before fuel exhaustion** — a missing pick is a random selection by the engine.
 
 ---
 
-## Champion strategy notes (Sprint 1 picks)
+## Shared memory — the S2.1 beacon protocol
 
-- **Sprint 1 pool:** champions whose kits score cleanly under the standard utility function (no carried-gems terms, no linked-death logic): **Ryth, Stellar, Vesper Vale**; extend with **Varg, Willow** if the map forces 5 picks (draft code queries `team_size()`, never hardcodes).
-- **Special cases (deferred):** **Prism** (carried-gems term in personal utility), **Cassi & Issac** (two linked instances — coordination-shaped).
-- **Sustain:** Willow is the only healer — for Sprint 1, sustain = recall + shopping rules inside the utility function; healing enters when combined-arms scoring does.
+The 8-byte shared channel is live. Byte *i* is owned by champion *i* (ally draft order); write your byte only, read all.
+
+```
+byte i:  bits 0-3  region id (4×4 grid)
+         bit  4    altar-contested
+         bits 5-7  freshness (~8-round buckets, ~55-round horizon ≈ ENEMY_TRACK_TTL)
+```
+
+The read side (`intelligence.fold_ally_intel`) turns the beacons into facts: `snap.ally_signals`, per-region sighting density → `snap.region_sightings`, and the contested-altar set → `snap.contested_altars`. Broadcast region flags require freshness == 1 for attribution; an exact own-vision per-altar check backs them up.
+
+**Known limitation (logged, not patched):** a dead writer's byte freezes until respawn. Close altar pairs share a 4×4 region, so the region flag is all-or-nothing — 0 altar-pick flips under a ×0.5 penalty.
+
+---
+
+## Candidate model and scoring
+
+`utility.generate_candidates()` builds the candidate set every turn; the argmax wins; ties break by config priority order.
+
+| Kind | Score |
+|---|---|
+| `farm` | `value(g) × TIME_DISCOUNT ** (d + clear_turns + capture) × P(survive the clear) × region_risk` |
+| `capture` | the standing-on-a-cleared-spawn-tile hold, with a commit factor so a 5-round capture is not abandoned |
+| `bank` | `gem_count × BANK_UTILITY_PER_GEM × P(survive the trip)`, scored down when the altar is contested |
+| `recall` | `(RECALL_HEAL_VALUE + gold-to-spend) × TIME_DISCOUNT ** (d_spawn + RECALL_CHANNEL_TURNS) × P(channel survives)` |
+| `fight` | `(bag + kill_gold + denial + capture_reset + tiebreak) × TIME_DISCOUNT ** turns × P(win \| our CURRENT health)` |
+| `chase` | the same value × `TIME_DISCOUNT ** (path + turns)` × `P(win) × CHASE_SUCCESS_FACTOR` |
+| `flee` | `(FLEE_BASE_VALUE + carried × FLEE_CARRIED_WEIGHT) × hp_factor × escape_probability` |
+| `boss` | `(drops + unlock_value) × TIME_DISCOUNT ** (d + turns) × P(survive)` |
+| `shop` | family shard vs. altar lock vs. hold — a nested mini-argmax |
+| `hold` | the fallback candidate; the candidate set is never empty |
+
+`ward` and `lock` placement are **free parallel actions**, not argmax entries — a ward spends the trinket charge, a lock placement is free once the lock is owned.
+
+**Honest distances.** `d` comes from one shared per-turn engine `DistanceField` rooted at our position (Chebyshev, 8-directional, detours priced honestly). A target the field never reaches — sealed behind a door, or beyond the field radius — scores 0. Unreachable falls out by arithmetic, with no special case. The canonical example is `01boss_battle`: the altar behind the Monolith corridor scores 0 and the 93-courier-death loop is dead by mechanism.
+
+**Two wall sets (owner-corrected ruling 2026-10-23):** the *scoring* field is terrain + the static overlay of excluded groups' spawn tiles (sealed doors score unreachable); the *boss-engagement* field is terrain-only with boss tiles as destinations. The overlay is precomputed once and position-independent by construction — the vision-derived variant re-created the `00ambush` bush-line oscillator.
+
+**Real economy, not flat estimates.** `value(g)` is the group's real `gem_value()` + `gold_value()` at `GOLD_TO_GEM`. `clear_turns(g)` is the group's real clear time (static HP ÷ team damage), charged against the group's Chebyshev **span** so a 30-camp row is not priced like a 4-camp cluster. A Monolith needs hundreds of turns and prices itself out.
+
+**Threat term.** Every non-combat candidate is multiplied by the threat factor — the expected damage along the engine-computed path (awake monsters + visible enemies + remembered enemies) folded in as P(survive). Farming or banking under attack is worth what we actually collect, which is nothing when we are killed on the way.
+
+**Kill economics (F1, owner-reframed: dominance IS economy).** `_kill_value` prices a kill as the immediate bag + kill gold, plus the terms that compound: **denial** (a dead enemy cannot farm, capture or tribute for the 60-round respawn — priced as their own production over the absence window), **contested-access** (an enemy on a group's spawn tiles resets our capture progress), and the **tiebreak** term. Patch-4 amplified every knob (Prism 0.2→1.5 focus/gem, Vesper 20→33%, Marcella tribute gold).
+
+**Fuel discipline.** The fight/chase generators re-read the engine per candidate; the per-turn enemy tuple cache (`_ENEMY_TUPLE_CACHE`) holds pos/dmg/reach/hp/bag as plain ints, and the score-bounded EV prune drops a fight/chase whose gross upper bound cannot beat the best non-combat candidate **before** the field read and the EV arithmetic. Chase stickiness (`CHASE_COMMIT_FACTOR`) is required: a chase that loses the argmax by a hair every other turn is an oscillator — a documented disease with three prior instances.
+
+---
+
+## config.py contract (live surface)
+
+All tunables live in `config.py`; every value carries a source citation (GameRules / champion stat tables / mechanics) or a `PLACEHOLDER` tag. `PLACEHOLDER` = first-pass value, not final; **the F4 tuning campaign exists to replace every one of them.**
+
+**Do not read `cambc.constants` at module import time** — the wasm preload phase has no engine context. `TRIBUTE_RANGE`, `CAPTURE_ROUNDS`, `RESPAWN_ROUNDS` and `KILL_GOLD_ON_DEATH` are resolved lazily via `resolve()` on first use.
+
+### Economy and utility core
+`BANK_THRESHOLD 1` · `TIME_DISCOUNT 0.99` · `BANK_UTILITY_PER_GEM 1.0` · `GOLD_TO_GEM 0.02` · `RECALL_UTILITY 200.0` · `RECALL_HEAL_VALUE 10.0` · `RECALL_GOLD_VALUE 0.05` · `RECALL_GOLD_TRIGGER 150` · `RECALL_GOLD_CAP 300` · `RECALL_INTERRUPT_RISK 0.5` · `RECALL_HP_FRAC 0.35` · `SAFETY_HP_FRAC 0.25` · `DEATH_RISK_BASE 0.05`
+
+`TIME_DISCOUNT 0.99` is measured, not arbitrary: the old 0.9 was far too steep for a 2,000-round match (`0.9 ** 108` ≈ 1.3e-5, so every distant farm candidate scored ~0 and the bank candidate was unreachable). 0.99 means "a target 100 turns away is still worth 37% of its value", matching a 20–40 turn camp cycle.
+
+### Farming
+`FARM_VISIBLE_CAP 3` · `FARM_ZONE_CAP 3` · `FARM_CLEAR_TURNS 2` · `FARM_ZONE_UNCERTAINTY_TURNS 1` · `FARM_VISIBLE_POOL 12` · `FARM_ZONE_POOL 24` · `FARM_TILE_READS 3` · `CAPTURE_COMMIT_FACTOR 2.0` · `CAPTURE_HOLD_MAX_ROUNDS 12` · `CAPTURE_HOLD_TILES 2` · `CLEAR_SCAN_RADIUS 8` · `CAPTURE_MAX_CANDIDATES 3`
+
+### Combat, chase and threat (F1)
+`FIGHT_WIN_FLOOR 0.02` · `FIGHT_WIN_RATIO_CENTER 0.9` · `FIGHT_WIN_LOGISTIC_K 8.0` · `FIGHT_GOLD_VALUE 0.02` · `FIGHT_DENIAL_VALUE 8.0` · `FIGHT_CAPTURE_RESET_VALUE 3.0` · `FIGHT_CAPTURE_RADIUS 2` · `FIGHT_TIEBREAK_VALUE 1.0` · `FIGHT_DENIAL_END_ROUNDS 2000` · `FIGHT_DEATH_COST 10.0` · `ASSISTED_DPS_FACTOR 3.0` · `CHASE_MIN_BAG 2` · `CHASE_MAX_TURNS 12` · `CHASE_MAX_CANDIDATES 3` · `CHASE_SUCCESS_FACTOR 0.6` · `CHASE_STAKE_SHARE 0.3` · `CHASE_COMMIT_FACTOR 2.0` · `CHASE_COMMIT_MIN 0.5` · `THREAT_PURSUE_TILES 2` · `THREAT_PURSUIT_TURNS 3` · `FLEE_UTILITY 120.0` · `FLEE_HP_FRAC 0.35` · `FLEE_BASE_VALUE 4.0` · `FLEE_HP_FLOOR 0.4` · `FLEE_ESCAPE_RANGED 0.8` · `FLEE_ESCAPE_MELEE 0.3` · `FLEE_CARRIED_WEIGHT 1.0` · `FLEE_HP_WEIGHT 1.0` · `FLEE_THREAT_FALLOFF 0.5` · `FLEE_STEP 3` · `MONSTER_RANGE 3` · `MONOLITH_HP 20_000`
+
+### Boss graduation and topology
+`BOSS_MAX_CANDIDATES 3` · `BOSS_FIELD_MAX_DISTANCE 4096` · `BOSS_FIELD_MAX_GROUPS 2` · `BOSS_FIELD_MIN_FUEL 400_000` · `ALTAR_UNLOCK_VALUE 400.0` · `UNLOCK_RADIUS 256` · `UNLOCK_MAX_GROUPS 6` · `UNLOCK_MIN_FUEL 2_500_000` · `KILLABLE_HP_CAP 5_000` · `CAMP_BASE_HP` / `MONSTER_STRENGTH` / `MONSTER_RANGE_BY_KIND` (GameRules tables)
+
+### Pathing, fuel and field
+`FIELD_MAX_DISTANCE 4096` · `FIELD_MIN_FUEL 900_000` · `ALTAR_DISTANCE_READS 4` · `PATH_MAX_STEPS 200` · `PATH_REANCHOR_READS 12` · `PATH_EXPOSURE_STEPS 24` · `PATH_EXPOSURE_CANDIDATES 2`
+
+### Intel and the beacon
+`ENEMY_TRACK_TTL 60` · `SIGNAL_ALTAR_CONTEST_RADIUS 2` · `BANK_CONTEST_PENALTY 0.5` · `REGION_RISK_FACTOR 0.85`
+
+### Shopping, emblems, locks, wards
+`CHAMPION_STAT_PRIORITY` (12 champions) · `CHAMPION_EMBLEM_FAMILY` (12 champions) · `_POWER_SHARD_BY_STAT` · `SHARD_STAT_VALUE 1.0` · `EMBLEM_COMPLETION_VALUE 3.0` · `EMBLEM_SHARD_COUNT 5` · `CONSUMABLE_RESERVE_GOLD 20` · `CONSUMABLE_RESERVE_VALUE 0.5` · `ALTAR_LOCK_COST 10` · `ALTAR_LOCK_RADIUS 2` · `LOCK_DENIAL_VALUE 2.0` · `LOCK_TRAFFIC_DIRECT 3.0` · `LOCK_TRAFFIC_REGION 1.0` · `LOCK_TRAFFIC_FOG 1.0` · `LOCK_FOG_RADIUS 4` · `WARD_VISION_RADIUS 6` · `WARD_PLACEMENT_RADIUS 2` · `WARD_CAMP_WEIGHT 3.0` · `WARD_PATH_WEIGHT 1.0` · `WARD_ALTAR_WEIGHT 2.0` · `WARD_CANDIDATE_CAP 5` · `WARD_COOLDOWN_ROUNDS 1`
+
+### Shopping rules
+Only the **completed** emblem grants the family passive (GameRules:290-294); a family shard alone grants nothing beyond its stat. `config.power_shard_for` is the one mapping and `bot.buy_items` is the one buyer. Shards are bought only when the gold covers the shard **and** the consumable reserve (a lock or a teleport crystal). Shopping is legal on a spawn tile **and** during the 60-round dead window.
+
+### Known config smell (logged, not fixed)
+`FIGHT_WIN_FLOOR` is defined twice — `0.15` at the utility section and `0.02` lower down. Python takes the later definition, so the **effective value is 0.02**; the `0.15` line is dead. `FLEE_BASE_VALUE` is also defined twice, with the same value, so it is harmless. Worth collapsing in the F4 tuning pass, which is where `config.py` is meant to be re-enumerated anyway.
+
+---
+
+## Build and verification
+
+```powershell
+# Build check (compile the bot the way the platform does)
+cambc build bots\vecticons --release
+
+# One match, platform-faithful
+cambc run bots\vecticons bots\starter-python --map contest --release
+
+# Statistics
+cambc run bots\vecticons bots\starter-python --map ambush --release --statistics stats.json --json
+
+# Full-pool campaign harness
+python scripts\run_pool.py --project-root <tree> --bot-a bots/vecticons --bot-b bots/starter-python
+```
+
+**`scripts/run_pool.py` defaults `--cambc` to `<project>/.venv/bin/cambc` and `scripts/one_map.py` to `/tmp/cambc304/bin/cambc` — both are Linux paths.** On any other platform, pass `--cambc` explicitly.
+
+**The engine line matters.** The 3.0.4 CLI / 2.2.4 SDK combination could not parse the newer pool maps: 19 of 70 maps failed with `engine error 7` and the campaign reported 51/70 maps OK. A campaign that silently drops maps inflates or deflates every aggregate — one closeout validation was read as a 25% fuel saving when it was really 19 missing maps. Before trusting a campaign, confirm the CLI is 4.0.0 **and** that `match.engineVersion` in the stats file reads `2.0.0`. On the current 4.0.0 / 2.2.4→4.0.0 SDK line the pool loads and `01elk_arena` reproduces the canonical control exactly (72 gems, W, 0/0 faults).
+
+**Verification rule (owner ruling 2026-10-26 — replaces the per-stage A/B ceremony):** ONE gated campaign before EVERY platform submission — single instrument, single host, top-line gates only (record AND aggregate gems ≥ the immediately-prior verified record · 0 botFaults both sides · fuelExhausted ≤ prior reference · `build --release` passes). Mid-work feedback is a 3-map spot-check (~2 min).
+
+**Same-bytes comparisons only.** Compiled module memory layout depends on exact source bytes; an `id()`-based tie-break once made a cosmetic comment in a never-executed file swing five per-map results by >100 gems. Per-map deltas inside the 100-gem noise floor are meaningless when source bytes differ.
+
+**Standing control maps** (a ratchet must not break them):
+- `01yellow_brick_road` — ≥ 100 gems, a win (reference: 259 gems / W)
+- `01elk_arena` — 72 gems, a win
+- `01boss_battle` — 0 courier deaths at the sealed door; the bank candidate must score 0 there
+
+**Current ratchet reference (pool-70, engine 2.0.0):** S2.4 verified **46-24 / 32,876 gems / ~11,093 fuel / 0 faults**; the F1 campaign at `dad8b55` recorded **55-15 / 38,703 gems / 22,230 fuel / 0 faults**. Evidence lives in `records/<stage>/`.
+
+---
+
+## Memory & vision model
+
+- **Draft memory (1,024 B, pre-match, read-only in match):** the v2 format above. Read via `cambc.DraftMemoryBuffer()` per instance. Validate on read; fall back to safe defaults on corruption.
+- **8-byte shared memory:** the *only* live channel between instances. The beacon protocol above. All champion bots agree on the layout — write your own byte, read all bytes.
+- **Per-champion vision (no ally sharing):** every observation fact is local. Vision is NOT shared between allies — coordinate through the shared memory. Movement into unseen occupants returns `False` — retry another step, never raise.
+- **Determinism:** WASI randomness is zero in matches; seed the PRNG from the spawn tile + champion start position. Same seed ⇒ same behaviour. Keep decision order stable.
+- **Fuel budget:** Python gets ~25× the C++ limit. Budget per turn and short-circuit before out-of-fuel. Check `cambc.fuel_remaining()` before expensive planning. Bots resume from suspension next round — but do NOT rely on this: always make per-turn work idempotent.
+- **First-turn budget:** 10× fuel on the draft turn, 2× on the first play turn. Cache anything reusable (camp layout union, spawn mask, altar approach tiles) on those turns — `bot.camp_layout` is the model.
+- **Competition safety:** no file I/O inside `play_turn()`. Treat logging via `print` (captured to the replay, `--log-limit` capped) only. Wrap dev-only analytics in `cambc.debug_block(lambda: ...)` — the platform builds with `--release`, so debug blocks are skipped entirely. **Never put game-affecting logic inside `debug_block`.**
+
+---
+
+## Champion strategy notes
+
+The bot drafts **Ryth → Stellar → Vesper Vale**, appending **Varg, then Willow** at `team_size() == 5`. `draft.py` queries `team_size()`, never hardcodes it.
+
+**The 12 playable types**, with their stat priority and emblem family (the two maps the bot uses to shop):
+
+| Champion | Stat | Emblem family |
+|---|---|---|
+| Ryth | HEALTH | MONSTER |
+| Varg | STRENGTH | MONSTER |
+| Vendetta | STRENGTH | MONSTER |
+| Marcella | STRENGTH | DURABILITY |
+| Ren | FOCUS | DURABILITY |
+| Willow | FOCUS | DURABILITY |
+| Vesper Vale | STRENGTH | TREASURE |
+| Stellar | FOCUS | POWER |
+| Prism | FOCUS | POWER |
+| Tavi | FOCUS | POWER |
+| Cassi | STRENGTH | POWER |
+| Issac | STRENGTH | POWER |
+
+**Deferred special cases (backlog B2).** **Prism** wants a carried-gems term in her personal utility (Patch-4 buffed her 0.2→1.5 focus/gem). **Cassi & Issac** are two linked instances — one draft pick, two bodies, linked fate — and need coordinated handling (never split far; treat as one body for engagement math). The shopping maps above already cover both champions' shard and emblem behaviour, but their *scoring* is not special-cased yet.
+
+**Sustain.** Willow is the only healer; sustain = recall + shopping rules inside the utility function. Healing enters when combined-arms scoring does (backlog B1).
 
 ---
 
 ## Coordination roadmap
 
 - **Sprint 1:** zero shared-memory traffic. Pre-assigned zones, independent greedy utility.
-- **Sprint 2:** write-only signals ("altar contested", "enemy seen at X") in owned bits; read-all.
-- **Sprint 3+:** negotiation protocol if measurable value exists — e.g., combined-arms focus-fire score ("my utility is higher *because* Ryth is adjacent"), respawn-aware camp schedules.
+- **Sprint 2 (done):** write-only beacon signals ("altar contested", "enemy seen in region") in owned bits; read all.
+- **Sprint 3+ (backlog B1):** combined-arms focus-fire scoring ("my utility is higher *because* Ryth is adjacent") · Willow healing/sustain · negotiation on the shared channel (only if the signals prove value) · respawn-aware camp schedules. The first two are blocked on the open question below.
 
 ---
 
 ## Telemetry plan
 
-- **v1 (Sprint 1):** harness script — N matches via `cambc run --statistics stats.json --json`, parse to win rate, gems tributed, camps cleared, deaths. Enough to A/B utility vs. baseline.
-- **v2 (Sprint 2):** per-round log → PIG_Bot-style viewer. Extend the existing viewer to ingest this game's CSV schema rather than building new.
+- **v1 (done):** `scripts/run_pool.py` — N matches via `cambc run --statistics --json`, parsed to win rate, gems tributed, camps cleared, deaths, fuel, ward/buy/consumable/emblem counters. Enough to A/B utility vs. baseline.
+- **v2 (blocked):** per-round log → PIG_Bot-style viewer. Needs the schema decision in *Open questions*.
 
 ---
 
-## Sprint 1 scope (frozen)
+## Scope status
 
-Stage 0 → 1 → 2 → 3. Picks: Ryth, Stellar, Vesper Vale (+ Varg, Willow when `team_size() == 5`). Shared memory unused. Prism and Cassi & Issac excluded (special-case kits). Telemetry: Stage 2 harness.
+| Stage | State |
+|---|---|
+| Sprint 1 (stages 0-3) | Complete, locked 18 Oct 2026. All numbers measured on the pre-Patch-4 pool and the old engine — stale for gates. |
+| Sprint 2 (S2.0-S2.4) | Complete. S2.0 re-baseline · S2.1 beacon · S2.2 intel consumers · S2.3 utility upgrades · S2.3.2 YBR hotfix · S2.4 scouting & shopping. |
+| Final sprint F1-F5 | In execution. F1 dominance economics is in closeout (code complete, awaiting the platform-line campaign). F2 done. F3-F5 pending. |
 
-## Open questions (non-blocking)
+The **live board** — stage state, gates, evidence and the overnight log — is `plan/tasks.md`. This file is the *spec*; that one is the *state*.
 
-- Telemetry v2 schema: how to extend the PIG_Bot viewer to this game's stats
-- When does the utility layer earn combined-arms scoring (the "my utility is higher because Ryth is adjacent" term)?
-- Exact stats.json field names (Stage 2 harness task resolves)
+---
+
+## Open questions
+
+- OPEN — Telemetry v2 schema: how the PIG_Bot viewer ingests this game's stats (blocks the v2 telemetry item).
+- OPEN — when does the utility layer earn combined-arms scoring (the "my utility is higher because Ryth is adjacent" term)? Blocks the remaining B1 items.
+- RESOLVED — the stats.json field names (probed 2026-10-17, re-verified on engine 2.0.0 by the Patch-4 audit — `extract()` unchanged).
