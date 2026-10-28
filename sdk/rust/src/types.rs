@@ -6,11 +6,22 @@ macro_rules! engine_enum {
 #[repr($ty)] #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)] pub enum $name {$(#[doc = concat!(stringify!($variant), " engine value (`", stringify!($value), "`).")] $variant = $value),*}
 impl $name {#[doc = "All recognised values in engine declaration order."] pub const ALL: &'static [Self] = &[$(Self::$variant),*];}
 impl core::fmt::Display for $name {fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {core::fmt::Debug::fmt(self, f)}}
+// SAFETY: a fieldless `repr($ty)` enum has no padding.
+unsafe impl bytemuck::NoUninit for $name {}
+// SAFETY: accepts exactly the declared discriminants.
+unsafe impl bytemuck::CheckedBitPattern for $name {type Bits = $ty; fn is_valid_bit_pattern(bits: &$ty) -> bool {$(*bits == $value)||*}}
 impl TryFrom<$ty> for $name {type Error = Error; fn try_from(value:$ty) -> Result<Self> {match value {$($value => Ok(Self::$variant),)* _ => Err(Error::invalid_value(stringify!($name), value as i64))}}}
 };
 }
+engine_enum!(ItemFamily,i32,{Monster = 0,Power = 1,Durability = 2,Treasure = 3,Jungle = 4,Home = 5,Bruiser = 6,Tribute = 7,Capture = 8,Prospector = 9,Hunter = 10,Skirmish = 11,Greed = 12,Collectors = 13});
+engine_enum!(ItemStat,i32,{Strength = 0,Focus = 1,Health = 2});
+engine_enum!(CampGroupCaptureType,i32,{NoCaptureAvailable = 0,AllyCapturing = 1,Contested = 2,EnemyCapturing = 3,CaptureAvailable = 4});
+/// Select a shard (true) or emblem (false) by family and stat, without querying the engine.
+pub const fn get_item_enum(family: ItemFamily, stat: ItemStat, shard: bool) -> ItemType {
+    ItemType::ALL[family as usize * 6 + stat as usize * 2 + if shard { 0 } else { 1 }]
+}
 engine_enum!(Symmetry,i32,{Horizontal = 0,Vertical = 1,Rotational180 = 2});
-engine_enum!(CampType,i32,{Wolf = 0,Elk = 1,GemCluster = 2,GoldCluster = 3,Monolith = 4});
+engine_enum!(CampType,i32,{Wolf = 0,Elk = 1,GemCluster = 2,GoldCluster = 3,Monolith = 4,Golem = 5});
 engine_enum!(CampState,u32,{Dead = 0,Alive = 1,Asleep = 2});
 impl CampState {
     #[must_use]
@@ -26,11 +37,11 @@ impl CampState {
     /// Check whether the captured state is living but dormant.
     pub const fn is_asleep(self) -> bool { matches!(self, Self::Asleep) }
 }
-engine_enum!(PassiveType,u8,{None = 0,BonusGold = 1,RemoteShop = 2,GemFocus = 3,SplashAttack = 4,HealthStrength = 5,ResetCooldownsOnKill = 6,Retaliation = 7,StunImmunity = 8});
-engine_enum!(ChampionDraft,i32,{Ryth = 0,VesperVale = 1,Vendetta = 2,CassiAndIssac = 3,Stellar = 4,Prism = 5,Marcella = 6,Willow = 7,Ren = 8,Varg = 9,Tavi = 10});
-engine_enum!(ChampionType,i32,{Ryth = 0,VesperVale = 1,Vendetta = 2,Cassi = 3,Issac = 4,Stellar = 5,Prism = 6,Marcella = 7,Willow = 8,Ren = 9,Varg = 10,Tavi = 11});
+engine_enum!(PassiveType,u8,{None = 0,BonusGold = 1,RemoteShop = 2,GemFocus = 3,SplashAttack = 4,HealthStrength = 5,ResetCooldownsOnKill = 6,Retaliation = 7,StunImmunity = 8,MissingHealthDamage = 10});
+engine_enum!(ChampionDraft,i32,{Ryth = 0,VesperVale = 1,Vendetta = 2,CassiAndIssac = 3,Stellar = 4,Prism = 5,Marcella = 6,Willow = 7,Ren = 8,Varg = 9,Tavi = 10,HeartOfRuin = 11});
+engine_enum!(ChampionType,i32,{Ryth = 0,VesperVale = 1,Vendetta = 2,Cassi = 3,Issac = 4,Stellar = 5,Prism = 6,Marcella = 7,Willow = 8,Ren = 9,Varg = 10,Tavi = 11,HeartOfRuin = 12});
 engine_enum!(AbilityKind,u32,{AttackReset = 1,Damage = 2,AoeDamage = 3,Cc = 4,Heal = 5,Dash = 6,Shield = 7});
-engine_enum!(ItemType,u32,{MonsterShardOfStrength = 0,MonsterEmblemOfStrength = 1,MonsterShardOfFocus = 2,MonsterEmblemOfFocus = 3,MonsterShardOfHealth = 4,MonsterEmblemOfHealth = 5,PowerShardOfStrength = 6,PowerEmblemOfStrength = 7,PowerShardOfFocus = 8,PowerEmblemOfFocus = 9,PowerShardOfHealth = 10,PowerEmblemOfHealth = 11,DurabilityShardOfStrength = 12,DurabilityEmblemOfStrength = 13,DurabilityShardOfFocus = 14,DurabilityEmblemOfFocus = 15,DurabilityShardOfHealth = 16,DurabilityEmblemOfHealth = 17,TreasureShardOfStrength = 18,TreasureEmblemOfStrength = 19,TreasureShardOfFocus = 20,TreasureEmblemOfFocus = 21,TreasureShardOfHealth = 22,TreasureEmblemOfHealth = 23,JungleShardOfStrength = 24,JungleEmblemOfStrength = 25,JungleShardOfFocus = 26,JungleEmblemOfFocus = 27,JungleShardOfHealth = 28,JungleEmblemOfHealth = 29,HomeShardOfStrength = 30,HomeEmblemOfStrength = 31,HomeShardOfFocus = 32,HomeEmblemOfFocus = 33,HomeShardOfHealth = 34,HomeEmblemOfHealth = 35,BruiserShardOfStrength = 36,BruiserEmblemOfStrength = 37,BruiserShardOfFocus = 38,BruiserEmblemOfFocus = 39,BruiserShardOfHealth = 40,BruiserEmblemOfHealth = 41});
+engine_enum!(ItemType,u32,{MonsterShardOfStrength = 0,MonsterEmblemOfStrength = 1,MonsterShardOfFocus = 2,MonsterEmblemOfFocus = 3,MonsterShardOfHealth = 4,MonsterEmblemOfHealth = 5,PowerShardOfStrength = 6,PowerEmblemOfStrength = 7,PowerShardOfFocus = 8,PowerEmblemOfFocus = 9,PowerShardOfHealth = 10,PowerEmblemOfHealth = 11,DurabilityShardOfStrength = 12,DurabilityEmblemOfStrength = 13,DurabilityShardOfFocus = 14,DurabilityEmblemOfFocus = 15,DurabilityShardOfHealth = 16,DurabilityEmblemOfHealth = 17,TreasureShardOfStrength = 18,TreasureEmblemOfStrength = 19,TreasureShardOfFocus = 20,TreasureEmblemOfFocus = 21,TreasureShardOfHealth = 22,TreasureEmblemOfHealth = 23,JungleShardOfStrength = 24,JungleEmblemOfStrength = 25,JungleShardOfFocus = 26,JungleEmblemOfFocus = 27,JungleShardOfHealth = 28,JungleEmblemOfHealth = 29,HomeShardOfStrength = 30,HomeEmblemOfStrength = 31,HomeShardOfFocus = 32,HomeEmblemOfFocus = 33,HomeShardOfHealth = 34,HomeEmblemOfHealth = 35,BruiserShardOfStrength = 36,BruiserEmblemOfStrength = 37,BruiserShardOfFocus = 38,BruiserEmblemOfFocus = 39,BruiserShardOfHealth = 40,BruiserEmblemOfHealth = 41,TributeShardOfStrength = 42,TributeEmblemOfStrength = 43,TributeShardOfFocus = 44,TributeEmblemOfFocus = 45,TributeShardOfHealth = 46,TributeEmblemOfHealth = 47,CaptureShardOfStrength = 48,CaptureEmblemOfStrength = 49,CaptureShardOfFocus = 50,CaptureEmblemOfFocus = 51,CaptureShardOfHealth = 52,CaptureEmblemOfHealth = 53,ProspectorShardOfStrength = 54,ProspectorEmblemOfStrength = 55,ProspectorShardOfFocus = 56,ProspectorEmblemOfFocus = 57,ProspectorShardOfHealth = 58,ProspectorEmblemOfHealth = 59,HunterShardOfStrength = 60,HunterEmblemOfStrength = 61,HunterShardOfFocus = 62,HunterEmblemOfFocus = 63,HunterShardOfHealth = 64,HunterEmblemOfHealth = 65,SkirmishShardOfStrength = 66,SkirmishEmblemOfStrength = 67,SkirmishShardOfFocus = 68,SkirmishEmblemOfFocus = 69,SkirmishShardOfHealth = 70,SkirmishEmblemOfHealth = 71,GreedShardOfStrength = 72,GreedEmblemOfStrength = 73,GreedShardOfFocus = 74,GreedEmblemOfFocus = 75,GreedShardOfHealth = 76,GreedEmblemOfHealth = 77,CollectorsShardOfStrength = 78,CollectorsEmblemOfStrength = 79,CollectorsShardOfFocus = 80,CollectorsEmblemOfFocus = 81,CollectorsShardOfHealth = 82,CollectorsEmblemOfHealth = 83});
 #[repr(u32)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 /// Public consumable kinds in their dense indexing order.
@@ -50,6 +61,15 @@ impl ConsumableType {
             Self::TpCrystal => 0,
             Self::AltarLock => 2,
         }
+    }
+}
+// SAFETY: a fieldless `repr(u32)` enum has no padding.
+unsafe impl bytemuck::NoUninit for ConsumableType {}
+// SAFETY: accepts exactly the declared discriminants.
+unsafe impl bytemuck::CheckedBitPattern for ConsumableType {
+    type Bits = u32;
+    fn is_valid_bit_pattern(bits: &u32) -> bool {
+        *bits <= 1
     }
 }
 impl TryFrom<u32> for ConsumableType {
@@ -196,6 +216,9 @@ pub struct Vec2 {
     /// Vertical integer coordinate.
     pub y: i32,
 }
+// SAFETY: `repr(C)` with two `i32` fields: no padding, every bit pattern valid.
+unsafe impl bytemuck::Zeroable for Vec2 {}
+unsafe impl bytemuck::Pod for Vec2 {}
 impl Vec2 {
     /// Unit vectors for the 8 standard directions; north is +y.
     pub const NORTH: Self = Self::new(0, 1);
@@ -341,10 +364,10 @@ impl core::ops::DivAssign<i32> for Vec2 {
 }
 /// Index-safe owning item-count snapshots.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct ItemCounts(pub(crate) [u32; 42]);
+pub struct ItemCounts(pub(crate) [u32; 84]);
 impl Default for ItemCounts {
     fn default() -> Self {
-        Self([0; 42])
+        Self([0; 84])
     }
 }
 impl ItemCounts {
@@ -395,3 +418,8 @@ bitflags::bitflags! {
         const _ = !0;
     }
 }
+// SAFETY: `repr(transparent)` flag sets that retain unknown bits, so every bit pattern is valid.
+unsafe impl bytemuck::Zeroable for AbilityTargetMask {}
+unsafe impl bytemuck::Pod for AbilityTargetMask {}
+unsafe impl bytemuck::Zeroable for BuffRestrictions {}
+unsafe impl bytemuck::Pod for BuffRestrictions {}

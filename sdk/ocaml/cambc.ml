@@ -29,6 +29,8 @@ module Sys = struct
   external board_ally_occupancy : int -> int = "cambc_board_ally_occupancy"
   external board_enemy_occupancy : int -> int = "cambc_board_enemy_occupancy"
   external camp_occupancy : int -> int = "cambc_camp_occupancy"
+  external awake_camp_occupancy : int -> int = "cambc_awake_camp_occupancy"
+  external asleep_camp_occupancy : int -> int = "cambc_asleep_camp_occupancy"
   external board_ally_ward_occupancy : int -> int = "cambc_board_ally_ward_occupancy"
   external board_enemy_ward_occupancy : int -> int = "cambc_board_enemy_ward_occupancy"
   external ward_at : int -> int -> int -> int = "cambc_ward_at"
@@ -95,6 +97,7 @@ module Sys = struct
   external map_camp_group_of : int -> int -> int = "cambc_map_camp_group_of"
   external map_camp_at : int -> int -> int -> int = "cambc_map_camp_at"
   external camp_group_cooldown : int -> int -> int = "cambc_camp_group_cooldown"
+  external camp_group_capture_state : int -> int -> int = "cambc_camp_group_capture_state"
   external camp_group_state : int -> int -> int = "cambc_camp_group_state"
   external camp_state : int -> int -> int = "cambc_camp_state"
   external camp_buffs : int -> int -> int -> int -> int = "cambc_camp_buffs"
@@ -103,6 +106,7 @@ module Sys = struct
   external camp_design : int -> int -> int = "cambc_camp_design"
   external camp_at : int -> int -> int -> int = "cambc_camp_at"
   external champion_at : int -> int -> int -> int = "cambc_champion_at"
+  external is_visible : int -> int -> int -> int = "cambc_is_visible"
   external has_camp : int -> int -> int -> int = "cambc_has_camp"
   external has_champion : int -> int -> int -> int = "cambc_has_champion"
   external board_vision : int -> int = "cambc_board_vision"
@@ -155,6 +159,8 @@ module Sys = struct
   external bc_distancefield_print : Bytes.t -> int = "cambc_bc_DistanceField_Print_gc"
   external bc_distancefield_get : Bytes.t -> int -> int -> int -> int = "cambc_bc_DistanceField_Get_gc"
   external bc_distancefield_set : Bytes.t -> int -> int -> int -> int = "cambc_bc_DistanceField_Set_gc"
+  external bc_distancefield_copy : Bytes.t -> Bytes.t -> int = "cambc_bc_DistanceField_Copy_gc"
+  external bc_distancefield_copywithmask : Bytes.t -> Bytes.t -> Bytes.t -> int = "cambc_bc_DistanceField_CopyWithMask_gc"
   external bc_distancefield_computewithexpansioncount : Bytes.t array -> int -> int -> int = "cambc_bc_DistanceField_ComputeWithExpansionCount_gc"
   external bc_distancefield_computetowithexpansioncount : Bytes.t array -> int -> int -> int = "cambc_bc_DistanceField_ComputeToWithExpansionCount_gc"
 end
@@ -250,20 +256,23 @@ module Camp_type = struct
     | Gem_cluster
     | Gold_cluster
     | Monolith
+    | Golem
 
-  let all = [ Wolf; Elk; Gem_cluster; Gold_cluster; Monolith ]
+  let all = [ Wolf; Elk; Gem_cluster; Gold_cluster; Monolith; Golem ]
   let to_int = function
     | Wolf -> 0
     | Elk -> 1
     | Gem_cluster -> 2
     | Gold_cluster -> 3
     | Monolith -> 4
+    | Golem -> 5
   let of_int = function
     | 0 -> Wolf
     | 1 -> Elk
     | 2 -> Gem_cluster
     | 3 -> Gold_cluster
     | 4 -> Monolith
+    | 5 -> Golem
     | n -> raise (Invalid_tag ("Camp_type", n))
   let to_string = function
     | Wolf -> "Wolf"
@@ -271,6 +280,7 @@ module Camp_type = struct
     | Gem_cluster -> "GemCluster"
     | Gold_cluster -> "GoldCluster"
     | Monolith -> "Monolith"
+    | Golem -> "Golem"
 end
 
 module Passive = struct
@@ -284,8 +294,9 @@ module Passive = struct
     | Reset_cooldowns_on_kill
     | Retaliation
     | Stun_immunity
+    | Missing_health_damage
 
-  let all = [ None; Bonus_gold; Remote_shop; Gem_focus; Splash_attack; Health_strength; Reset_cooldowns_on_kill; Retaliation; Stun_immunity ]
+  let all = [ None; Bonus_gold; Remote_shop; Gem_focus; Splash_attack; Health_strength; Reset_cooldowns_on_kill; Retaliation; Stun_immunity; Missing_health_damage ]
   let of_int = function
     | 0 -> None
     | 1 -> Bonus_gold
@@ -296,6 +307,7 @@ module Passive = struct
     | 6 -> Reset_cooldowns_on_kill
     | 7 -> Retaliation
     | 8 -> Stun_immunity
+    | 10 -> Missing_health_damage
     | n -> raise (Invalid_tag ("Passive", n))
   let to_string = function
     | None -> "None"
@@ -307,6 +319,7 @@ module Passive = struct
     | Reset_cooldowns_on_kill -> "Reset_cooldowns_on_kill"
     | Retaliation -> "Retaliation"
     | Stun_immunity -> "Stun_immunity"
+    | Missing_health_damage -> "Missing_health_damage"
 end
 
 module Champion_draft = struct
@@ -322,8 +335,9 @@ module Champion_draft = struct
     | Ren
     | Varg
     | Tavi
+    | Heart_of_ruin
 
-  let all = [ Ryth; Vesper_vale; Vendetta; Cassi_and_issac; Stellar; Prism; Marcella; Willow; Ren; Varg; Tavi ]
+  let all = [ Ryth; Vesper_vale; Vendetta; Cassi_and_issac; Stellar; Prism; Marcella; Willow; Ren; Varg; Tavi; Heart_of_ruin ]
   let to_int = function
     | Ryth -> 0
     | Vesper_vale -> 1
@@ -336,6 +350,7 @@ module Champion_draft = struct
     | Ren -> 8
     | Varg -> 9
     | Tavi -> 10
+    | Heart_of_ruin -> 11
   let of_int = function
     | 0 -> Ryth
     | 1 -> Vesper_vale
@@ -348,6 +363,7 @@ module Champion_draft = struct
     | 8 -> Ren
     | 9 -> Varg
     | 10 -> Tavi
+    | 11 -> Heart_of_ruin
     | n -> raise (Invalid_tag ("Champion_draft", n))
   let to_string = function
     | Ryth -> "Ryth"
@@ -361,6 +377,7 @@ module Champion_draft = struct
     | Ren -> "Ren"
     | Varg -> "Varg"
     | Tavi -> "Tavi"
+    | Heart_of_ruin -> "Heart_of_ruin"
 end
 
 module Champion_type = struct
@@ -377,8 +394,9 @@ module Champion_type = struct
     | Ren
     | Varg
     | Tavi
+    | Heart_of_ruin
 
-  let all = [ Ryth; Vesper_vale; Vendetta; Cassi; Issac; Stellar; Prism; Marcella; Willow; Ren; Varg; Tavi ]
+  let all = [ Ryth; Vesper_vale; Vendetta; Cassi; Issac; Stellar; Prism; Marcella; Willow; Ren; Varg; Tavi; Heart_of_ruin ]
   let to_int = function
     | Ryth -> 0
     | Vesper_vale -> 1
@@ -392,6 +410,7 @@ module Champion_type = struct
     | Ren -> 9
     | Varg -> 10
     | Tavi -> 11
+    | Heart_of_ruin -> 12
   let of_int = function
     | 0 -> Ryth
     | 1 -> Vesper_vale
@@ -405,6 +424,7 @@ module Champion_type = struct
     | 9 -> Ren
     | 10 -> Varg
     | 11 -> Tavi
+    | 12 -> Heart_of_ruin
     | n -> raise (Invalid_tag ("Champion_type", n))
   let to_string = function
     | Ryth -> "Ryth"
@@ -419,6 +439,7 @@ module Champion_type = struct
     | Ren -> "Ren"
     | Varg -> "Varg"
     | Tavi -> "Tavi"
+    | Heart_of_ruin -> "Heart_of_ruin"
 end
 
 module Ability_kind = struct
@@ -449,6 +470,20 @@ module Ability_kind = struct
     | Heal -> "Heal"
     | Dash -> "Dash"
     | Shield -> "Shield"
+end
+
+module Item_family = struct
+  type t = Monster | Power | Durability | Treasure | Jungle | Home | Bruiser | Tribute | Capture | Prospector | Hunter | Skirmish | Greed | Collectors
+  let to_int = function | Monster -> 0 | Power -> 1 | Durability -> 2 | Treasure -> 3 | Jungle -> 4 | Home -> 5 | Bruiser -> 6 | Tribute -> 7 | Capture -> 8 | Prospector -> 9 | Hunter -> 10 | Skirmish -> 11 | Greed -> 12 | Collectors -> 13
+  let of_int = function | 0 -> Monster | 1 -> Power | 2 -> Durability | 3 -> Treasure | 4 -> Jungle | 5 -> Home | 6 -> Bruiser | 7 -> Tribute | 8 -> Capture | 9 -> Prospector | 10 -> Hunter | 11 -> Skirmish | 12 -> Greed | 13 -> Collectors | n -> raise (Invalid_tag ("Item_family", n))
+  let all = [Monster; Power; Durability; Treasure; Jungle; Home; Bruiser; Tribute; Capture; Prospector; Hunter; Skirmish; Greed; Collectors]
+end
+
+module Item_stat = struct
+  type t = Strength | Focus | Health
+  let to_int = function | Strength -> 0 | Focus -> 1 | Health -> 2
+  let of_int = function | 0 -> Strength | 1 -> Focus | 2 -> Health | n -> raise (Invalid_tag ("Item_stat", n))
+  let all = [Strength; Focus; Health]
 end
 
 module Item = struct
@@ -496,7 +531,50 @@ module Item = struct
     | Bruiser_shard_of_health
     | Bruiser_emblem_of_health
 
-  let all = [ Monster_shard_of_strength; Monster_emblem_of_strength; Monster_shard_of_focus; Monster_emblem_of_focus; Monster_shard_of_health; Monster_emblem_of_health; Power_shard_of_strength; Power_emblem_of_strength; Power_shard_of_focus; Power_emblem_of_focus; Power_shard_of_health; Power_emblem_of_health; Durability_shard_of_strength; Durability_emblem_of_strength; Durability_shard_of_focus; Durability_emblem_of_focus; Durability_shard_of_health; Durability_emblem_of_health; Treasure_shard_of_strength; Treasure_emblem_of_strength; Treasure_shard_of_focus; Treasure_emblem_of_focus; Treasure_shard_of_health; Treasure_emblem_of_health; Jungle_shard_of_strength; Jungle_emblem_of_strength; Jungle_shard_of_focus; Jungle_emblem_of_focus; Jungle_shard_of_health; Jungle_emblem_of_health; Home_shard_of_strength; Home_emblem_of_strength; Home_shard_of_focus; Home_emblem_of_focus; Home_shard_of_health; Home_emblem_of_health; Bruiser_shard_of_strength; Bruiser_emblem_of_strength; Bruiser_shard_of_focus; Bruiser_emblem_of_focus; Bruiser_shard_of_health; Bruiser_emblem_of_health ]
+    | Tribute_shard_of_strength
+    | Tribute_emblem_of_strength
+    | Tribute_shard_of_focus
+    | Tribute_emblem_of_focus
+    | Tribute_shard_of_health
+    | Tribute_emblem_of_health
+    | Capture_shard_of_strength
+    | Capture_emblem_of_strength
+    | Capture_shard_of_focus
+    | Capture_emblem_of_focus
+    | Capture_shard_of_health
+    | Capture_emblem_of_health
+    | Prospector_shard_of_strength
+    | Prospector_emblem_of_strength
+    | Prospector_shard_of_focus
+    | Prospector_emblem_of_focus
+    | Prospector_shard_of_health
+    | Prospector_emblem_of_health
+    | Hunter_shard_of_strength
+    | Hunter_emblem_of_strength
+    | Hunter_shard_of_focus
+    | Hunter_emblem_of_focus
+    | Hunter_shard_of_health
+    | Hunter_emblem_of_health
+    | Skirmish_shard_of_strength
+    | Skirmish_emblem_of_strength
+    | Skirmish_shard_of_focus
+    | Skirmish_emblem_of_focus
+    | Skirmish_shard_of_health
+    | Skirmish_emblem_of_health
+    | Greed_shard_of_strength
+    | Greed_emblem_of_strength
+    | Greed_shard_of_focus
+    | Greed_emblem_of_focus
+    | Greed_shard_of_health
+    | Greed_emblem_of_health
+    | Collectors_shard_of_strength
+    | Collectors_emblem_of_strength
+    | Collectors_shard_of_focus
+    | Collectors_emblem_of_focus
+    | Collectors_shard_of_health
+    | Collectors_emblem_of_health
+
+  let all = [ Monster_shard_of_strength; Monster_emblem_of_strength; Monster_shard_of_focus; Monster_emblem_of_focus; Monster_shard_of_health; Monster_emblem_of_health; Power_shard_of_strength; Power_emblem_of_strength; Power_shard_of_focus; Power_emblem_of_focus; Power_shard_of_health; Power_emblem_of_health; Durability_shard_of_strength; Durability_emblem_of_strength; Durability_shard_of_focus; Durability_emblem_of_focus; Durability_shard_of_health; Durability_emblem_of_health; Treasure_shard_of_strength; Treasure_emblem_of_strength; Treasure_shard_of_focus; Treasure_emblem_of_focus; Treasure_shard_of_health; Treasure_emblem_of_health; Jungle_shard_of_strength; Jungle_emblem_of_strength; Jungle_shard_of_focus; Jungle_emblem_of_focus; Jungle_shard_of_health; Jungle_emblem_of_health; Home_shard_of_strength; Home_emblem_of_strength; Home_shard_of_focus; Home_emblem_of_focus; Home_shard_of_health; Home_emblem_of_health; Bruiser_shard_of_strength; Bruiser_emblem_of_strength; Bruiser_shard_of_focus; Bruiser_emblem_of_focus; Bruiser_shard_of_health; Bruiser_emblem_of_health; Tribute_shard_of_strength; Tribute_emblem_of_strength; Tribute_shard_of_focus; Tribute_emblem_of_focus; Tribute_shard_of_health; Tribute_emblem_of_health; Capture_shard_of_strength; Capture_emblem_of_strength; Capture_shard_of_focus; Capture_emblem_of_focus; Capture_shard_of_health; Capture_emblem_of_health; Prospector_shard_of_strength; Prospector_emblem_of_strength; Prospector_shard_of_focus; Prospector_emblem_of_focus; Prospector_shard_of_health; Prospector_emblem_of_health; Hunter_shard_of_strength; Hunter_emblem_of_strength; Hunter_shard_of_focus; Hunter_emblem_of_focus; Hunter_shard_of_health; Hunter_emblem_of_health; Skirmish_shard_of_strength; Skirmish_emblem_of_strength; Skirmish_shard_of_focus; Skirmish_emblem_of_focus; Skirmish_shard_of_health; Skirmish_emblem_of_health; Greed_shard_of_strength; Greed_emblem_of_strength; Greed_shard_of_focus; Greed_emblem_of_focus; Greed_shard_of_health; Greed_emblem_of_health; Collectors_shard_of_strength; Collectors_emblem_of_strength; Collectors_shard_of_focus; Collectors_emblem_of_focus; Collectors_shard_of_health; Collectors_emblem_of_health ]
   let to_int = function
     | Monster_shard_of_strength -> 0
     | Monster_emblem_of_strength -> 1
@@ -540,6 +618,48 @@ module Item = struct
     | Bruiser_emblem_of_focus -> 39
     | Bruiser_shard_of_health -> 40
     | Bruiser_emblem_of_health -> 41
+    | Tribute_shard_of_strength -> 42
+    | Tribute_emblem_of_strength -> 43
+    | Tribute_shard_of_focus -> 44
+    | Tribute_emblem_of_focus -> 45
+    | Tribute_shard_of_health -> 46
+    | Tribute_emblem_of_health -> 47
+    | Capture_shard_of_strength -> 48
+    | Capture_emblem_of_strength -> 49
+    | Capture_shard_of_focus -> 50
+    | Capture_emblem_of_focus -> 51
+    | Capture_shard_of_health -> 52
+    | Capture_emblem_of_health -> 53
+    | Prospector_shard_of_strength -> 54
+    | Prospector_emblem_of_strength -> 55
+    | Prospector_shard_of_focus -> 56
+    | Prospector_emblem_of_focus -> 57
+    | Prospector_shard_of_health -> 58
+    | Prospector_emblem_of_health -> 59
+    | Hunter_shard_of_strength -> 60
+    | Hunter_emblem_of_strength -> 61
+    | Hunter_shard_of_focus -> 62
+    | Hunter_emblem_of_focus -> 63
+    | Hunter_shard_of_health -> 64
+    | Hunter_emblem_of_health -> 65
+    | Skirmish_shard_of_strength -> 66
+    | Skirmish_emblem_of_strength -> 67
+    | Skirmish_shard_of_focus -> 68
+    | Skirmish_emblem_of_focus -> 69
+    | Skirmish_shard_of_health -> 70
+    | Skirmish_emblem_of_health -> 71
+    | Greed_shard_of_strength -> 72
+    | Greed_emblem_of_strength -> 73
+    | Greed_shard_of_focus -> 74
+    | Greed_emblem_of_focus -> 75
+    | Greed_shard_of_health -> 76
+    | Greed_emblem_of_health -> 77
+    | Collectors_shard_of_strength -> 78
+    | Collectors_emblem_of_strength -> 79
+    | Collectors_shard_of_focus -> 80
+    | Collectors_emblem_of_focus -> 81
+    | Collectors_shard_of_health -> 82
+    | Collectors_emblem_of_health -> 83
   let of_int = function
     | 0 -> Monster_shard_of_strength
     | 1 -> Monster_emblem_of_strength
@@ -583,6 +703,48 @@ module Item = struct
     | 39 -> Bruiser_emblem_of_focus
     | 40 -> Bruiser_shard_of_health
     | 41 -> Bruiser_emblem_of_health
+    | 42 -> Tribute_shard_of_strength
+    | 43 -> Tribute_emblem_of_strength
+    | 44 -> Tribute_shard_of_focus
+    | 45 -> Tribute_emblem_of_focus
+    | 46 -> Tribute_shard_of_health
+    | 47 -> Tribute_emblem_of_health
+    | 48 -> Capture_shard_of_strength
+    | 49 -> Capture_emblem_of_strength
+    | 50 -> Capture_shard_of_focus
+    | 51 -> Capture_emblem_of_focus
+    | 52 -> Capture_shard_of_health
+    | 53 -> Capture_emblem_of_health
+    | 54 -> Prospector_shard_of_strength
+    | 55 -> Prospector_emblem_of_strength
+    | 56 -> Prospector_shard_of_focus
+    | 57 -> Prospector_emblem_of_focus
+    | 58 -> Prospector_shard_of_health
+    | 59 -> Prospector_emblem_of_health
+    | 60 -> Hunter_shard_of_strength
+    | 61 -> Hunter_emblem_of_strength
+    | 62 -> Hunter_shard_of_focus
+    | 63 -> Hunter_emblem_of_focus
+    | 64 -> Hunter_shard_of_health
+    | 65 -> Hunter_emblem_of_health
+    | 66 -> Skirmish_shard_of_strength
+    | 67 -> Skirmish_emblem_of_strength
+    | 68 -> Skirmish_shard_of_focus
+    | 69 -> Skirmish_emblem_of_focus
+    | 70 -> Skirmish_shard_of_health
+    | 71 -> Skirmish_emblem_of_health
+    | 72 -> Greed_shard_of_strength
+    | 73 -> Greed_emblem_of_strength
+    | 74 -> Greed_shard_of_focus
+    | 75 -> Greed_emblem_of_focus
+    | 76 -> Greed_shard_of_health
+    | 77 -> Greed_emblem_of_health
+    | 78 -> Collectors_shard_of_strength
+    | 79 -> Collectors_emblem_of_strength
+    | 80 -> Collectors_shard_of_focus
+    | 81 -> Collectors_emblem_of_focus
+    | 82 -> Collectors_shard_of_health
+    | 83 -> Collectors_emblem_of_health
     | n -> raise (Invalid_tag ("Item", n))
   let to_string = function
     | Monster_shard_of_strength -> "Monster_shard_of_strength"
@@ -627,7 +789,53 @@ module Item = struct
     | Bruiser_emblem_of_focus -> "Bruiser_emblem_of_focus"
     | Bruiser_shard_of_health -> "Bruiser_shard_of_health"
     | Bruiser_emblem_of_health -> "Bruiser_emblem_of_health"
+    | Tribute_shard_of_strength -> "Tribute_shard_of_strength"
+    | Tribute_emblem_of_strength -> "Tribute_emblem_of_strength"
+    | Tribute_shard_of_focus -> "Tribute_shard_of_focus"
+    | Tribute_emblem_of_focus -> "Tribute_emblem_of_focus"
+    | Tribute_shard_of_health -> "Tribute_shard_of_health"
+    | Tribute_emblem_of_health -> "Tribute_emblem_of_health"
+    | Capture_shard_of_strength -> "Capture_shard_of_strength"
+    | Capture_emblem_of_strength -> "Capture_emblem_of_strength"
+    | Capture_shard_of_focus -> "Capture_shard_of_focus"
+    | Capture_emblem_of_focus -> "Capture_emblem_of_focus"
+    | Capture_shard_of_health -> "Capture_shard_of_health"
+    | Capture_emblem_of_health -> "Capture_emblem_of_health"
+    | Prospector_shard_of_strength -> "Prospector_shard_of_strength"
+    | Prospector_emblem_of_strength -> "Prospector_emblem_of_strength"
+    | Prospector_shard_of_focus -> "Prospector_shard_of_focus"
+    | Prospector_emblem_of_focus -> "Prospector_emblem_of_focus"
+    | Prospector_shard_of_health -> "Prospector_shard_of_health"
+    | Prospector_emblem_of_health -> "Prospector_emblem_of_health"
+    | Hunter_shard_of_strength -> "Hunter_shard_of_strength"
+    | Hunter_emblem_of_strength -> "Hunter_emblem_of_strength"
+    | Hunter_shard_of_focus -> "Hunter_shard_of_focus"
+    | Hunter_emblem_of_focus -> "Hunter_emblem_of_focus"
+    | Hunter_shard_of_health -> "Hunter_shard_of_health"
+    | Hunter_emblem_of_health -> "Hunter_emblem_of_health"
+    | Skirmish_shard_of_strength -> "Skirmish_shard_of_strength"
+    | Skirmish_emblem_of_strength -> "Skirmish_emblem_of_strength"
+    | Skirmish_shard_of_focus -> "Skirmish_shard_of_focus"
+    | Skirmish_emblem_of_focus -> "Skirmish_emblem_of_focus"
+    | Skirmish_shard_of_health -> "Skirmish_shard_of_health"
+    | Skirmish_emblem_of_health -> "Skirmish_emblem_of_health"
+    | Greed_shard_of_strength -> "Greed_shard_of_strength"
+    | Greed_emblem_of_strength -> "Greed_emblem_of_strength"
+    | Greed_shard_of_focus -> "Greed_shard_of_focus"
+    | Greed_emblem_of_focus -> "Greed_emblem_of_focus"
+    | Greed_shard_of_health -> "Greed_shard_of_health"
+    | Greed_emblem_of_health -> "Greed_emblem_of_health"
+    | Collectors_shard_of_strength -> "Collectors_shard_of_strength"
+    | Collectors_emblem_of_strength -> "Collectors_emblem_of_strength"
+    | Collectors_shard_of_focus -> "Collectors_shard_of_focus"
+    | Collectors_emblem_of_focus -> "Collectors_emblem_of_focus"
+    | Collectors_shard_of_health -> "Collectors_shard_of_health"
+    | Collectors_emblem_of_health -> "Collectors_emblem_of_health"
 end
+
+let get_item_enum ?(shard = true) family stat =
+  Item.of_int (Item_family.to_int family * 6 + Item_stat.to_int stat * 2 + if shard then 0 else 1)
+
 
 module Buff_kind = struct
   type t =
@@ -1285,11 +1493,13 @@ module Constants = struct
   let get () = Lazy.force cached
 
   module Passive_abilities = struct
-    let prism_focus_per_gem = 0.2
+    let prism_focus_per_gem = 1.5
     let varg_splash_radius = 1.0
-    let vesper_vale_bonus_gold_percent = 20
+    let vesper_vale_bonus_gold_percent = 33
+    let marcella_tribute_gold_per_gem = 2
     let ryth_health_strength_ratio = 0.01
     let ren_retaliation_focus_ratio = 0.2
+    let heart_of_ruin_missing_health_damage_max_bonus = 0.5
   end
 end
 
@@ -1326,10 +1536,16 @@ module Item_info = struct
     | 5 -> Some Item_passive.Home
     | n -> fail Error_code.Api_value_out_of_range (Printf.sprintf "invalid item passive value: %d" n)
 
+  let cache = Array.make (List.length Item.all) None
+
   let get kind =
+    let k = Item.to_int kind in
+    match cache.(k) with
+    | Some info -> info
+    | None ->
     let o = rec_ in
-    check (Sys.item_info (Item.to_int kind) o);
-    {
+    check (Sys.item_info k o);
+    let info = {
       cost = u32 o;
       purchasable = u32 (o + 4) <> 0;
       health_points = i32 (o + 8);
@@ -1339,7 +1555,9 @@ module Item_info = struct
       passive_magnitude = f32 (o + 24);
       combine_count = u32 (o + 28);
       result = (match u32 (o + 32) with 0xff -> None | r -> Some (Item.of_int r));
-    }
+    } in
+    cache.(k) <- Some info;
+    info
 
   let cost k = (get k).cost
   let is_purchasable k = (get k).purchasable
@@ -1534,6 +1752,11 @@ module Distance_field = struct
   let unreachable = 0xffff
   let create () = Bytes.make (Lazy.force layout).field_bytes '\000'
   let copy = Bytes.copy
+  let copy_from ?mask t source =
+    if t != source then
+      check (match mask with
+        | None -> Sys.bc_distancefield_copy source t
+        | Some mask -> Sys.bc_distancefield_copywithmask source mask t)
   let width _ = (Lazy.force layout).w
   let height _ = (Lazy.force layout).h
   let raw_buffer_size t = Bytes.length t
@@ -1628,7 +1851,7 @@ module Ability_info = struct
       }
     | Cc of { properties : properties; range : float; modifier : float; duration : int }
     | Heal of { properties : properties; range : float; modifier : float }
-    | Dash of { properties : properties; range : float }
+    | Dash of { properties : properties; range : float; radius : float; modifier : float; duration : int }
     | Shield of { properties : properties; range : float; modifier : float; duration : int }
 
   let decode o =
@@ -1649,11 +1872,11 @@ module Ability_info = struct
                Aoe_damage { properties; range; radius = f32 (p 1); modifier = f32 (p 2); duration = i32 (p 3) }
            | Ability_kind.Cc -> Cc { properties; range; modifier; duration = i32 (p 2) }
            | Ability_kind.Heal -> Heal { properties; range; modifier }
-           | Ability_kind.Dash -> Dash { properties; range }
+           | Ability_kind.Dash -> Dash { properties; range; radius = f32 (p 1); modifier = f32 (p 2); duration = i32 (p 3) }
            | Ability_kind.Shield -> Shield { properties; range; modifier; duration = i32 (p 2) })
 end
 
-type ability = { owner : int option; slot : int; ab_info : (Ability_info.info option, exn) result }
+type ability = { owner : int option; slot : int; ab_info : (Ability_info.info option, exn) result; targets : int }
 type champion = { handle : int option; design : Champion_type.t option; known : Champion_type.t option; abilities : ability array }
 
 type camp = { camp_handle : int; group : int; camp_kind : Camp_type.t; spawn : Vec2.t }
@@ -1672,7 +1895,8 @@ let live_ability h slot =
     | () -> Ok (Ability_info.decode rec_)
     | exception (Cambc_error (Error_code.Api_not_in_vision, _) as e) -> Error e
   in
-  { owner = Some h; slot; ab_info }
+  let targets = match ab_info with Ok _ -> i32 (rec_ + 12) | Error _ -> 0 in
+  { owner = Some h; slot; ab_info; targets }
 
 let make_champion h = { handle = Some h; design = None; known = None; abilities = [| live_ability h 0; live_ability h 1 |] }
 
@@ -1745,6 +1969,7 @@ module Ability = struct
 
   let valid_targets t =
     match t.owner with
+    | Some _ when Result.is_ok t.ab_info -> Ability_target.of_bits t.targets
     | Some h -> check (Sys.champion_ability_props h t.slot rec_); Ability_target.of_bits (i32 (rec_ + 12))
     | None -> ( match info t with Some i -> (properties i).valid_targets | None -> Ability_target.empty)
 
@@ -1796,14 +2021,17 @@ module Ability = struct
 end
 
 module Ward = struct
-  type t = { position : Vec2.t; team : Team.t; remaining_time : int option }
+  type t = { position : Vec2.t; team : Team.t; remaining_time : int option; owner : champion }
+  let owner (w : t) = w.owner
   let is_ally w = w.team = Team.Ally
   let is_enemy w = w.team = Team.Enemy
 
   let decode o =
     let timer = i32 (o + 12) in
-    { position = Vec2.make (i32 (o + 4)) (i32 (o + 8)); team = team_of_abs (i32 o);
-      remaining_time = (if timer < 0 then None else Some timer) }
+    let position = Vec2.make (i32 (o + 4)) (i32 (o + 8)) in
+    let team = team_of_abs (i32 o) in
+    let owner = make_champion (u32 (o + 20)) in
+    { position; team; remaining_time = (if timer < 0 then None else Some timer); owner }
 
   let visible_tiles_from_into (p : Vec2.t) out =
     Bitboard.query_into (Sys.board_ward_vision_mask p.x p.y) out
@@ -2053,7 +2281,7 @@ module Champion = struct
          (fun kind ->
            let o = champion_design_raw kind in
            let ab slot =
-             { owner = None; slot; ab_info = Ok (Ability_info.decode (o + 12 + (36 * slot))) }
+             { owner = None; slot; ab_info = Ok (Ability_info.decode (o + 12 + (36 * slot))); targets = 0 }
            in
            { handle = None; design = Some kind; known = None; abilities = [| ab 0; ab 1 |] })
          Champion_type.all)
@@ -2188,21 +2416,19 @@ module Champion = struct
         (fun query -> Bitboard.query_into query temp; Bitboard.union_assign blocked temp)
         [ Sys.board_ally_occupancy; Sys.board_enemy_occupancy; Sys.camp_occupancy; Sys.board_teleport_occupancy ];
       Bitboard.set blocked origin false;
-      if Bitboard.is_set blocked target then false
-      else begin
-        let roots = Bitboard.create () in
-        Bitboard.set roots target true;
-        let destinations = Bitboard.create () in
-        Bitboard.set destinations origin true;
-        let distances = Distance_field.create () in
-        Distance_field.compute distances ~walls:blocked ~roots ~destinations ~visited:(Bitboard.create ())
-          ~max_distance:Distance_field.unreachable;
-        let closer best tile =
-          if Distance_field.get distances tile < Distance_field.get distances best then tile else best in
-        let reachable = Bitboard.reachable_tiles blocked origin ~distance:(base_stats c).base_move_speed in
-        let best = List.fold_left closer origin (Bitboard.positions reachable) in
-        (not (Vec2.equal best origin)) && move_absolute c best
-      end
+      Bitboard.set blocked target false;
+      let roots = Bitboard.create () in
+      Bitboard.set roots target true;
+      let destinations = Bitboard.create () in
+      Bitboard.set destinations origin true;
+      let distances = Distance_field.create () in
+      Distance_field.compute distances ~walls:blocked ~roots ~destinations ~visited:(Bitboard.create ())
+        ~max_distance:Distance_field.unreachable;
+      let closer best tile =
+        if Distance_field.get distances tile < Distance_field.get distances best then tile else best in
+      let reachable = Bitboard.reachable_tiles blocked origin ~distance:(base_stats c).base_move_speed in
+      let best = List.fold_left closer origin (Bitboard.positions reachable) in
+      (not (Vec2.equal best origin)) && move_absolute c best
     end
   let recall c = ignore (h c); check (Sys.recall 0)
 
@@ -2221,6 +2447,20 @@ end
 module Camp_group = struct
   type t = camp_group
   type state = Alive | Reward_available | Respawning of int
+  type capture_type = No_capture_available | Ally_capturing | Contested | Enemy_capturing | Capture_available
+  type capture_state = { timer : int; state : capture_type }
+  let capture_state g =
+    check (Sys.camp_group_capture_state g.g_handle rec_);
+    let timer = i32 rec_ in
+    let state = match i32 (rec_ + 4) with
+      | 0 -> No_capture_available
+      | 1 -> Ally_capturing
+      | 2 -> Contested
+      | 3 -> Enemy_capturing
+      | 4 -> Capture_available
+      | n -> raise (Invalid_tag ("camp group capture state", n)) in
+    { timer; state }
+
 
   let equal a b = a.g_handle = b.g_handle
   let hash a = Hashtbl.hash a.g_handle
@@ -2287,6 +2527,7 @@ module Camp = struct
   let is_gem_cluster c = kind c = Camp_type.Gem_cluster
   let is_gold_cluster c = kind c = Camp_type.Gold_cluster
   let is_monolith c = kind c = Camp_type.Monolith
+  let is_golem c = kind c = Camp_type.Golem
   let spawn_position c = c.spawn
 
   let camp_group c =
@@ -2340,11 +2581,16 @@ module Game_map = struct
 end
 
 module Vision = struct
+  let in_vision (p : Vec2.t) = query_bool (Sys.is_visible p.x p.y)
   let visible_tiles_into out = Bitboard.query_into Sys.board_vision out
   let visible_tiles () = let out = Bitboard.create () in visible_tiles_into out; out
 
   let camp_tiles_into out = Bitboard.query_into Sys.camp_occupancy out
   let camp_tiles () = let out = Bitboard.create () in camp_tiles_into out; out
+  let awake_camp_tiles_into out = Bitboard.query_into Sys.awake_camp_occupancy out
+  let awake_camp_tiles () = let out = Bitboard.create () in awake_camp_tiles_into out; out
+  let asleep_camp_tiles_into out = Bitboard.query_into Sys.asleep_camp_occupancy out
+  let asleep_camp_tiles () = let out = Bitboard.create () in asleep_camp_tiles_into out; out
 
   let teleport_tiles_into out = Bitboard.query_into Sys.board_teleport_occupancy out
   let teleport_tiles () = let out = Bitboard.create () in teleport_tiles_into out; out
@@ -2406,7 +2652,7 @@ module Vision = struct
   let wards ?team () =
     List.filter
       (fun (w : Ward.t) -> match team with None -> true | Some t -> w.team = t)
-      (List.map Ward.decode (host_list 20 Sys.wards))
+      (List.map Ward.decode (host_list 24 Sys.wards))
 
   let ward_handle ?team (p : Vec2.t) =
     let f = match team with None -> Sys.ward_at | Some Team.Ally -> Sys.ally_ward_at | Some Team.Enemy -> Sys.enemy_ward_at in

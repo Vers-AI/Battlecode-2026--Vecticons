@@ -20,21 +20,27 @@ pub use sys::{CampStats, ChampionStats};
 pub(crate) use types::detail::{self, Entity, EntityKind, EntityTarget};
 pub use types::*;
 pub use unit::*;
-pub use world::{AltarLock, CampGroup, CampGroupState, DraftMemory, SharedMemory, Teleport, Ward};
+pub use world::{AltarLock, CampGroup, CampGroupState, CampGroupCaptureState, DraftMemory, SharedMemory, Teleport, Ward};
+/// Re-exported so bots can use the SDK's pinned version without their own dependency.
+pub use bitflags;
+/// Re-exported so bots can use the SDK's pinned version without their own dependency.
+pub use bytemuck;
 /// Map geometry and immutable terrain/spawn/camp snapshots.
 pub mod map {
+    pub use crate::CampGroupCaptureType;
     pub use crate::world::{
         altars, bushes, camp, camp_groups, height, holes, is_in_bounds, reflect_horizontal,
         reflect_vertical, rotate_180, spawn_region, symmetry, walls, width, CampGroup,
-        CampGroupState,
+        CampGroupState, CampGroupCaptureState,
     };
 }
 /// Live visibility, occupancy and visible-entity queries.
 pub mod vision {
     pub use crate::world::{
-        altar_lock_at, altar_lock_tiles, altar_lock_tiles_into, altar_locks, camp_at, camp_tiles,
+        altar_lock_at, altar_lock_tiles, altar_lock_tiles_into, altar_locks,
+        asleep_camp_tiles, asleep_camp_tiles_into, awake_camp_tiles, awake_camp_tiles_into, camp_at, camp_tiles,
         camp_tiles_into, champion_at, champion_tiles, champion_tiles_into, has_altar_lock, has_camp,
-        has_champion, has_teleport, has_ward, teleport_at, teleport_tiles, teleport_tiles_into,
+        has_champion, has_teleport, has_ward, in_vision, teleport_at, teleport_tiles, teleport_tiles_into,
         teleports, vision_camp_groups as camp_groups, vision_camps as camps,
         vision_champions as champions, visible_tiles, visible_tiles_into, ward_at, ward_tiles,
         ward_tiles_into, wards,
@@ -44,7 +50,8 @@ pub mod vision {
 pub mod draft {
     pub use crate::world::{current_draft, draft_pick as pick, draft_team_size as team_size};
 }
-/// Replay debug drawing.
+/// Gameplay drawings last until the start of the drawing champion's next turn.
+/// Draft drawings clear at the next draft round, or when gameplay begins.
 pub mod debug {
     pub use crate::world::{debug_draw_dot as draw_dot, debug_draw_line as draw_line};
 }

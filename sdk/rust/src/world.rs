@@ -10,13 +10,13 @@ use std::sync::OnceLock;
 struct State {
     constants: Constants,
     self_champion: Option<Champion>,
-    champion_designs: [Champion; 12],
+    champion_designs: [Champion; 13],
     memory: (SharedMemory, DraftMemory),
     symmetry: Symmetry,
     terrain: [Bitboard; 4],
     spawns: [Bitboard; 2],
 }
-const _: () = assert!(ChampionType::ALL.len() == 12);
+const _: () = assert!(ChampionType::ALL.len() == 13);
 #[cfg(not(test))]
 static STATE: OnceLock<Box<State>> = OnceLock::new();
 #[cfg(test)]
@@ -49,6 +49,7 @@ pub(crate) fn reset_for_tests() {
         state.borrow_mut().take();
     });
     crate::board::reset_layout_for_tests();
+    crate::shop::reset_items_for_tests();
 }
 /// Initialise immutable SDK data. A static constructor runs this before `main` on the first
 /// turn's fuel, so calling it is only needed to retry or inspect a failed initialisation.
@@ -179,7 +180,7 @@ pub fn is_draft() -> bool {
     unsafe { sys::my_champion() < 0 }
 }
 /// Borrow all initialised champion designs, with no live cooldown/visibility queries.
-pub fn champion_designs() -> Result<&'static [Champion; 12]> {
+pub fn champion_designs() -> Result<&'static [Champion; 13]> {
     Ok(&state()?.champion_designs)
 }
 /// Borrow this team's shared-memory interface, initialised by [`cambc::init`](crate::init).
@@ -232,7 +233,7 @@ pub fn resign() -> Result<()> {
     flush_output();
     check(unsafe { sys::resign() })
 }
-/// Return remaining guest fuel (10x on a team's first draft turn, 2x on each champion's first turn); invalid negative host values return an error.
+/// Return remaining guest fuel (100x on a team's first draft turn, 2x on each champion's first turn); invalid negative host values return an error.
 pub fn fuel_remaining() -> Result<u64> {
     let value = unsafe { sys::fuel_remaining() };
     u64::try_from(value).map_err(|_| Error::invalid_value("fuel", value))
@@ -278,6 +279,14 @@ pub enum CampGroupState {
     RewardAvailable,
     /// The group is respawning with a remaining engine countdown.
     Respawning(i32),
+}
+/// Capture countdown and status from the visible group, even when its occupants are hidden.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct CampGroupCaptureState {
+    /// Remaining turns while capturing; configured maximum otherwise.
+    pub timer: i32,
+    /// State relative to your team.
+    pub state: crate::CampGroupCaptureType,
 }
 /// Camp membership and rewards queried from the host; live state is queried separately.
 #[derive(Clone, Debug)]
@@ -354,6 +363,11 @@ impl CampGroup {
             }
         }
         Ok(false)
+    }
+    /// Read capture progress; hidden groups return ApiNotInVision. Occupants need not be visible.
+    pub fn capture_state(&self) -> Result<CampGroupCaptureState> {
+        let raw: sys::CampGroupCaptureState = query(|p| unsafe { sys::camp_group_capture_state(self.handle.0, p) })?;
+        Ok(CampGroupCaptureState { timer: raw.timer, state: raw.state.try_into()? })
     }
     /// Query group state only when its spawn mask intersects current vision.
     /// Hidden/unknown groups return `ApiNotInVision`; invalid runtime tags remain errors.
@@ -564,14 +578,21 @@ fn load_camp(h: u32) -> Result<Camp> {
 /// An immutable snapshot of a visible ordinary ward.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct Ward {
+    pub(crate) owner: ChampionHandle,
     pub(crate) position: Vec2,
     pub(crate) team: Team,
     pub(crate) remaining_time: Option<i32>,
 }
 impl Ward {
+    /// Return the owning champion captured when this ward was visible, even if the owner is hidden.
+    /// Live champion state still requires the champion to be in vision.
+    pub fn owner(&self) -> Result<Champion> {
+        Champion::new(self.owner)
+    }
     /// Decode an engine ward record.
     pub(crate) fn from_raw(v: &sys::WardInfo) -> Result<Self> {
         Ok(Self {
+            owner: ChampionHandle(v.owner),
             position: Vec2::new(v.x, v.y),
             team: Team::from_absolute(v.team as i32)?,
             remaining_time: if v.timer < 0 { None } else { Some(v.timer) },
@@ -784,9 +805,25 @@ fn optional<T>(r: Result<T>) -> Result<Option<T>> {
 pub fn visible_tiles() -> Result<Bitboard> {
     Bitboard::query(|p| unsafe { sys::vision(p) })
 }
+/// Check current self vision, including owned ward vision, even on empty tiles.
+/// Hidden tiles return `Ok(false)`; out-of-bounds positions return `ApiBadPosition`.
+///
+/// # Arguments
+/// * `position` - Tile to query.
+pub fn in_vision(position: Vec2) -> Result<bool> {
+    Ok(query(|p| unsafe { sys::is_visible(position.x, position.y, p) })? != 0)
+}
 /// Query the current visible camp occupancy mask.
 pub fn camp_tiles() -> Result<Bitboard> {
     Bitboard::query(|p| unsafe { sys::camp_occupancy(p) })
+}
+/// Query the tiles of visible awake camps. Dead camps are excluded.
+pub fn awake_camp_tiles() -> Result<Bitboard> {
+    Bitboard::query(|p| unsafe { sys::awake_camp_occupancy(p) })
+}
+/// Query the tiles of visible asleep camps. Dead camps are excluded.
+pub fn asleep_camp_tiles() -> Result<Bitboard> {
+    Bitboard::query(|p| unsafe { sys::asleep_camp_occupancy(p) })
 }
 /// Query current visible teleport-destination occupancy.
 pub fn teleport_tiles() -> Result<Bitboard> {
@@ -843,6 +880,20 @@ pub fn visible_tiles_into(out: &mut Bitboard) -> Result<()> {
 /// * `out` - Destination mask; its previous contents are overwritten.
 pub fn camp_tiles_into(out: &mut Bitboard) -> Result<()> {
     crate::check(unsafe { sys::camp_occupancy(out.ptr_mut()) })
+}
+/// Like [`awake_camp_tiles`], but writes into `out`.
+///
+/// # Arguments
+/// * `out` - Destination mask; its previous contents are overwritten.
+pub fn awake_camp_tiles_into(out: &mut Bitboard) -> Result<()> {
+    crate::check(unsafe { sys::awake_camp_occupancy(out.ptr_mut()) })
+}
+/// Like [`asleep_camp_tiles`], but writes into `out`.
+///
+/// # Arguments
+/// * `out` - Destination mask; its previous contents are overwritten.
+pub fn asleep_camp_tiles_into(out: &mut Bitboard) -> Result<()> {
+    crate::check(unsafe { sys::asleep_camp_occupancy(out.ptr_mut()) })
 }
 /// Like [`teleport_tiles`], but writes into `out`.
 ///

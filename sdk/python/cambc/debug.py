@@ -1,4 +1,8 @@
-"""Debug drawing for the visualiser."""
+"""Debug drawing for the visualiser during draft and gameplay.
+
+Gameplay drawings last until the start of the drawing champion's next turn.
+Draft drawings clear at the next draft round, or when gameplay begins.
+"""
 
 from __future__ import annotations
 

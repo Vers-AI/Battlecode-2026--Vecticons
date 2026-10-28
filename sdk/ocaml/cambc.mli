@@ -132,6 +132,7 @@ module Camp_type : sig
       | Gem_cluster
       | Gold_cluster
       | Monolith
+      | Golem
 
   (** Every value, in declaration order. *)
   val all : t list
@@ -151,6 +152,7 @@ module Passive : sig
       | Reset_cooldowns_on_kill
       | Retaliation
       | Stun_immunity
+      | Missing_health_damage
 
   (** Every value, in declaration order. *)
   val all : t list
@@ -172,6 +174,7 @@ module Champion_draft : sig
       | Ren
       | Varg
       | Tavi
+      | Heart_of_ruin
 
   (** Every value, in declaration order. *)
   val all : t list
@@ -194,6 +197,7 @@ module Champion_type : sig
       | Ren
       | Varg
       | Tavi
+      | Heart_of_ruin
 
   (** Every value, in declaration order. *)
   val all : t list
@@ -217,6 +221,28 @@ module Ability_kind : sig
   (** [to_string x] is the name of [x].
       @param x Value to name. *)
   val to_string : t -> string
+end
+
+module Item_family : sig
+  (** Item selection key, independent of shard/emblem tier. *)
+  type t = Monster | Power | Durability | Treasure | Jungle | Home | Bruiser | Tribute | Capture | Prospector | Hunter | Skirmish | Greed | Collectors
+  (** Convert a family to its engine enum value. *)
+  val to_int : t -> int
+  (** Decode an engine family value; raises on an unknown value. *)
+  val of_int : int -> t
+  (** All emblem families in engine enum order. *)
+  val all : t list
+end
+
+module Item_stat : sig
+  (** Item selection key, independent of shard/emblem tier. *)
+  type t = Strength | Focus | Health
+  (** Convert a stat type to its engine enum value. *)
+  val to_int : t -> int
+  (** Decode an engine stat type; raises on an unknown value. *)
+  val of_int : int -> t
+  (** All emblem stat types in engine enum order. *)
+  val all : t list
 end
 
 module Item : sig
@@ -264,12 +290,59 @@ module Item : sig
       | Bruiser_shard_of_health
       | Bruiser_emblem_of_health
 
+    | Tribute_shard_of_strength
+    | Tribute_emblem_of_strength
+    | Tribute_shard_of_focus
+    | Tribute_emblem_of_focus
+    | Tribute_shard_of_health
+    | Tribute_emblem_of_health
+    | Capture_shard_of_strength
+    | Capture_emblem_of_strength
+    | Capture_shard_of_focus
+    | Capture_emblem_of_focus
+    | Capture_shard_of_health
+    | Capture_emblem_of_health
+    | Prospector_shard_of_strength
+    | Prospector_emblem_of_strength
+    | Prospector_shard_of_focus
+    | Prospector_emblem_of_focus
+    | Prospector_shard_of_health
+    | Prospector_emblem_of_health
+    | Hunter_shard_of_strength
+    | Hunter_emblem_of_strength
+    | Hunter_shard_of_focus
+    | Hunter_emblem_of_focus
+    | Hunter_shard_of_health
+    | Hunter_emblem_of_health
+    | Skirmish_shard_of_strength
+    | Skirmish_emblem_of_strength
+    | Skirmish_shard_of_focus
+    | Skirmish_emblem_of_focus
+    | Skirmish_shard_of_health
+    | Skirmish_emblem_of_health
+    | Greed_shard_of_strength
+    | Greed_emblem_of_strength
+    | Greed_shard_of_focus
+    | Greed_emblem_of_focus
+    | Greed_shard_of_health
+    | Greed_emblem_of_health
+    | Collectors_shard_of_strength
+    | Collectors_emblem_of_strength
+    | Collectors_shard_of_focus
+    | Collectors_emblem_of_focus
+    | Collectors_shard_of_health
+    | Collectors_emblem_of_health
+
   (** Every value, in declaration order. *)
   val all : t list
   (** [to_string x] is the name of [x].
       @param x Value to name. *)
   val to_string : t -> string
 end
+
+(** Select an item by family and stat. [shard] defaults to [true]; [false] selects an emblem. *)
+val get_item_enum : ?shard:bool -> Item_family.t -> Item_stat.t -> Item.t
+
 
 module Buff_kind : sig
   type t =
@@ -564,10 +637,14 @@ module Constants : sig
     val varg_splash_radius : float
     (** Extra gold Vesper Vale gains, in percent. *)
     val vesper_vale_bonus_gold_percent : int
+    (** Marcella: gold gained per gem tributed. *)
+    val marcella_tribute_gold_per_gem : int
     (** Strength Ryth gains per point of bonus health. *)
     val ryth_health_strength_ratio : float
     (** Fraction of focus Ren deals back as retaliation damage. *)
     val ren_retaliation_focus_ratio : float
+    (** Heart of Ruin: maximum bonus to all damage at 100% missing health. *)
+    val heart_of_ruin_missing_health_damage_max_bonus : float
   end
 end
 
@@ -891,6 +968,13 @@ module Distance_field : sig
   (** [copy d] is an independent copy.
       @param d Distance field. *)
   val copy : t -> t
+  (** [copy_from destination source] copies every distance into existing storage.
+      With [~mask], only selected tiles are copied; all unselected destination values
+      are preserved and mask padding is ignored. Self-copy is a no-op.
+      @param mask Tiles to copy; omit to copy the entire field.
+      @param destination Field to update.
+      @param source Field to copy from. *)
+  val copy_from : ?mask:Bitboard.t -> t -> t -> unit
   (** Map width in tiles.
       @param d Distance field. *)
   val width : t -> int
@@ -1008,6 +1092,16 @@ module Ability : sig
     exclusive_with_movement : bool;
   }
 
+  (** Ability metadata. For the [Dash] variant:
+      Landing effects apply to enemies and camps only after a successful dash.
+      [range]: Maximum dash travel distance in tiles. Diagonal steps count as one;
+      the destination must be a different tile reachable by a legal dash path.
+      [radius]: Chebyshev radius in tiles around the landing tile for damage and stun;
+      1 includes all eight neighbouring tiles.
+      [modifier]: Landing damage multiplier: base damage = caster Focus * modifier,
+      before damage bonuses and mitigation. 0 disables landing damage.
+      [duration]: Stun duration applied on landing, in turns; 0 disables stun.
+      This is not the dash travel time. *)
   type info =
     | Attack_reset of { properties : properties; enhanced_attack : bool }
     | Damage of { properties : properties; range : float; modifier : float }
@@ -1020,7 +1114,10 @@ module Ability : sig
       }
     | Cc of { properties : properties; range : float; modifier : float; duration : int }
     | Heal of { properties : properties; range : float; modifier : float }
-    | Dash of { properties : properties; range : float }
+    | Dash of { properties : properties; range : float; radius : float; modifier : float; duration : int }
+        (** Dash movement within [range] tiles, with landing damage and stun within [radius].
+            [modifier] multiplies Focus for base damage; [duration] is stun turns, not travel time.
+            Zero [modifier] disables damage; zero [duration] disables stun. *)
     | Shield of { properties : properties; range : float; modifier : float; duration : int }
 
   (** [kind i] is the ability's kind.
@@ -1101,7 +1198,10 @@ module Ability : sig
   (** [can_target_ground a] is true when the ability can target a tile.
       @param a Ability slot. *)
   val can_target_ground : t -> bool
-  (** [damage_amount ?against a] is the damage the ability would deal, after mitigation and shields when [against] is given.
+  (** [damage_amount ?against a] returns Focus-scaled damage, including dash landing damage and caster outgoing bonuses such as Heart of Ruin's passive.
+      Without [against], excludes target-dependent modifiers, shields and health limits.
+      With [against], predicts health lost after outgoing bonuses, mitigation and shields, capped at current health.
+      Does not check range or whether a target is in the landing area.
       @param against Optional visible champion the amount is computed against.
       @param a Ability slot. *)
   val damage_amount : ?against:champion -> t -> float
@@ -1124,7 +1224,12 @@ module Ability : sig
 end
 
 module Ward : sig
-  type t = { position : Vec2.t; team : Team.t; remaining_time : int option }
+  type t = { position : Vec2.t; team : Team.t; remaining_time : int option; owner : champion }
+
+  (** Return the owning champion captured when this ward was visible, even if the owner is hidden.
+      Live champion state still requires the champion to be in vision.
+      @param w Ward snapshot. *)
+  val owner : t -> champion
 
   (** Check whether this ward belongs to the observing team.
       @param w Ward snapshot. *)
@@ -1394,9 +1499,10 @@ module Champion : sig
       @param c The bot's own champion.
       @param destination Map tile to move to. *)
   val move_absolute : t -> Vec2.t -> bool
-  (** Move to the reachable tile on a shortest path to [target], avoiding walls, holes, altars, the enemy spawn and
-      visible units. Returns false without moving when already there, unable to move, or [target] is blocked or
-      unreachable, and for a newly revealed obstruction.
+  (** Move to the reachable tile on a shortest path to [target]. Always treat the target as free for pathfinding,
+      while avoiding other walls, holes, altars, enemy spawn tiles, visible units and teleport reservations.
+      Returns false when already there, unable to move, no route exists, or a hidden obstruction is revealed.
+      The engine still validates the chosen landing tile: trying to enter a known blocked target raises [Cambc_error].
       @param c The bot's own champion.
       @param target Map tile to approach. *)
   val move_towards : t -> Vec2.t -> bool
@@ -1429,6 +1535,12 @@ end
 module Camp_group : sig
   type t
   type state = Alive | Reward_available | Respawning of int
+  type capture_type = No_capture_available | Ally_capturing | Contested | Enemy_capturing | Capture_available
+  type capture_state = { timer : int; state : capture_type }
+  (** Read visible group capture progress, even if its occupants are hidden.
+      Timer is remaining turns when capturing, configured maximum otherwise. *)
+  val capture_state : t -> capture_state
+
 
   (** [equal a b] is true for the same group.
       @param a First group.
@@ -1532,6 +1644,9 @@ module Camp : sig
   (** Check whether this camp is a monolith.
       @param c Camp. *)
   val is_monolith : t -> bool
+  (** Check whether this camp is a golem.
+      @param c Camp. *)
+  val is_golem : t -> bool
   (** [spawn_position c] is the camp's spawn tile, not its live position.
       @param c Camp. *)
   val spawn_position : t -> Vec2.t
@@ -1652,6 +1767,10 @@ module Game_map : sig
 end
 
 module Vision : sig
+  (** Check current self vision, including owned ward vision, even on empty tiles.
+      Hidden tiles return [false]; out-of-bounds positions raise [Api_bad_position].
+      @param position Tile to query. *)
+  val in_vision : Vec2.t -> bool
   (** Every tile visible to the bot's champion. *)
   val visible_tiles : unit -> Bitboard.t
   (** Like [visible_tiles], but writes into [out].
@@ -1662,6 +1781,16 @@ module Vision : sig
   (** Like [camp_tiles], but writes into [out].
       @param out Destination; its previous contents are overwritten. *)
   val camp_tiles_into : Bitboard.t -> unit
+  (** Tiles of visible awake camps. Dead camps are excluded. *)
+  val awake_camp_tiles : unit -> Bitboard.t
+  (** Like [awake_camp_tiles], but writes into [out].
+      @param out Destination; its previous contents are overwritten. *)
+  val awake_camp_tiles_into : Bitboard.t -> unit
+  (** Tiles of visible asleep camps. Dead camps are excluded. *)
+  val asleep_camp_tiles : unit -> Bitboard.t
+  (** Like [asleep_camp_tiles], but writes into [out].
+      @param out Destination; its previous contents are overwritten. *)
+  val asleep_camp_tiles_into : Bitboard.t -> unit
   (** Tiles of visible teleport reservations. *)
   val teleport_tiles : unit -> Bitboard.t
   (** Like [teleport_tiles], but writes into [out].
@@ -1825,6 +1954,8 @@ module Draft_memory : sig
 end
 
 module Debug : sig
+  (** Gameplay drawings last until the start of the drawing champion's next turn.
+      Draft drawings clear at the next draft round, or when gameplay begins. *)
   (** [draw_dot p rgb] draws a debug dot in the replay.
       @param p Tile to mark.
       @param rgb Packed [0xRRGGBB] colour. *)

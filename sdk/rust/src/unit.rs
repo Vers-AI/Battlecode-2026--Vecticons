@@ -208,6 +208,9 @@ bitflags::bitflags! {
         const TELEPORTING = 1 << 12;
     }
 }
+// SAFETY: a `repr(transparent)` `u32` flag set; every bit pattern is valid.
+unsafe impl bytemuck::Zeroable for ChampionState {}
+unsafe impl bytemuck::Pod for ChampionState {}
 impl ChampionState {
     /// Test whether `ALIVE` is absent from these captured state flags.
     #[must_use]
@@ -410,7 +413,6 @@ impl Champion {
     }
     /// Query the current channel countdown for a visible live champion.
     pub fn remaining_channel_time(&self) -> Result<i32> {
-        self.info()?;
         let h = self.handle()?;
         query(|p| unsafe { sys::champion_channel_time(h.0, p) })
     }
@@ -502,7 +504,7 @@ impl Champion {
     /// Query and return an independent owning item-count snapshot.
     pub fn item_count(&self) -> Result<ItemCounts> {
         let h = self.handle()?;
-        let mut result = [0; 42];
+        let mut result = [0; 84];
         check(unsafe { sys::champion_items(h.0, result.as_mut_ptr()) })?;
         Ok(ItemCounts(result))
     }
@@ -634,9 +636,10 @@ impl Champion {
         self.own()?;
         query(|out| unsafe { sys::move_to(destination.x, destination.y, out) }).map(|successful| successful != 0)
     }
-    /// Move self to the reachable tile on a shortest path to `target`, avoiding walls, holes, altars,
-    /// the enemy spawn and visible units. Returns `Ok(false)` without moving when already there,
-    /// unable to move, or `target` is blocked or unreachable, and for a newly revealed obstruction.
+    /// Move self to the reachable tile on a shortest path to `target`. Always treat the target as free for pathfinding,
+    /// while avoiding other walls, holes, altars, enemy spawn tiles, visible units and teleport reservations.
+    /// Returns `Ok(false)` when already there, unable to move, no route exists, or a hidden obstruction is revealed.
+    /// The engine still validates the chosen landing tile: trying to enter a known blocked target returns `Err`.
     ///
     /// # Arguments
     /// * `target` - Map tile to approach.
@@ -654,9 +657,7 @@ impl Champion {
         blocked.union_assign(&crate::world::camp_tiles()?)?;
         blocked.union_assign(&crate::world::teleport_tiles()?)?;
         blocked.set(origin, false)?;
-        if blocked.is_set(target)? {
-            return Ok(false);
-        }
+        blocked.set(target, false)?;
         let mut roots = Bitboard::new()?;
         roots.set(target, true)?;
         let mut destinations = Bitboard::new()?;
@@ -815,6 +816,11 @@ impl Camp {
     #[must_use]
     pub fn is_monolith(&self) -> bool {
         self.kind() == CampType::Monolith
+    }
+    /// Return whether this camp is a golem.
+    #[must_use]
+    pub fn is_golem(&self) -> bool {
+        self.kind() == CampType::Golem
     }
     /// Return the immutable engine spawn position, not a current live position.
     #[must_use]

@@ -144,13 +144,23 @@ impl AbilityMetadata for AbilityHeal {
         Ok(self.range)
     }
 }
-/// Metadata for a movement ability and its range.
+/// Dash metadata. Landing effects apply to enemies and camps only after a successful dash.
+/// range: Maximum dash travel distance in tiles. Diagonal steps count as one; the destination must be a different tile reachable by a legal dash path.
+/// radius: Chebyshev radius in tiles around the landing tile for damage and stun; 1 includes all eight neighbouring tiles.
+/// modifier: Landing damage multiplier: base damage = caster Focus * modifier, before damage bonuses and mitigation. 0 disables landing damage.
+/// duration: Stun duration applied on landing, in turns; 0 disables stun. This is not the dash travel time.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct AbilityDash {
     /// Common immutable ability properties.
     pub properties: AbilityProperties,
-    /// Ability range in map-coordinate units.
+    /// Maximum travel distance in tiles; diagonals count as one. Requires a legal dash path to a different tile.
     pub range: f32,
+    /// Damage and stun radius around the landing tile, in Chebyshev tiles; 1 includes all eight neighbours.
+    pub radius: f32,
+    /// Base landing damage is caster Focus * modifier, before damage bonuses and mitigation; 0 disables damage.
+    pub modifier: f32,
+    /// Stun duration applied on landing, in turns, not dash travel time; 0 disables stun.
+    pub duration: i32,
 }
 impl AbilityMetadata for AbilityDash {
     fn kind(&self) -> AbilityKind {
@@ -259,7 +269,13 @@ impl AbilityInfo {
                 range,
                 modifier,
             }),
-            AbilityKind::Dash => Self::Dash(AbilityDash { properties, range }),
+            AbilityKind::Dash => Self::Dash(AbilityDash {
+                properties,
+                range,
+                radius: f32::from_bits(raw.payload[1]),
+                modifier: f32::from_bits(raw.payload[2]),
+                duration: raw.payload[3] as i32,
+            }),
             AbilityKind::Shield => Self::Shield(AbilityShield {
                 properties,
                 range,
@@ -276,6 +292,7 @@ pub struct Ability {
     owner: Option<ChampionHandle>,
     slot: u32,
     info: Result<Option<AbilityInfo>>,
+    targets: u32,
 }
 impl PartialEq for Ability {
     fn eq(&self, b: &Self) -> bool {
@@ -292,6 +309,7 @@ impl Ability {
     /// Capture slot metadata once, retaining visibility failure for hidden roster members.
     pub(crate) fn live(owner: ChampionHandle, slot: u32) -> Result<Self> {
         let raw = query(|p| unsafe { sys::champion_ability_props(owner.0, slot, p) });
+        let targets = raw.as_ref().map_or(0, |p| p.targets);
         let info = match raw {
             Ok(p) => AbilityInfo::decode(p),
             Err(e) if e.code() == Some(ErrorCode::ApiNotInVision) => Err(e),
@@ -306,6 +324,7 @@ impl Ability {
             owner: Some(owner),
             slot,
             info,
+            targets,
         })
     }
     /// Decode draft-safe slot metadata straight into `dst`.
@@ -322,6 +341,7 @@ impl Ability {
             core::ptr::addr_of_mut!((*dst).owner).write(None);
             core::ptr::addr_of_mut!((*dst).slot).write(slot);
             core::ptr::addr_of_mut!((*dst).info).write(Ok(info));
+            core::ptr::addr_of_mut!((*dst).targets).write(raw.targets);
         }
         Ok(())
     }
@@ -332,6 +352,7 @@ impl Ability {
             owner: None,
             slot,
             info: Ok(AbilityInfo::decode(raw)?),
+            targets: raw.targets,
         })
     }
     /// Require a live owner; draft designs cannot query timers or cast.
@@ -409,11 +430,14 @@ impl Ability {
         if self.info()?.is_none() || self.is_on_cooldown()? {
             return Ok(false);
         }
-        crate::unit::Champion::new(self.owner()?)?.can_cast()
+        let owner = self.owner()?;
+        let state = query(|p| unsafe { sys::champion(owner.0, p) })?.state as u32;
+        Ok(crate::ChampionState::from_bits_retain(state).contains(crate::ChampionState::CAN_CAST))
     }
-    /// Query current live targeting flags, or use cached flags for a draft design.
+    /// Get the targeting flags of the owner's immutable ability design.
     pub fn valid_targets(&self) -> Result<AbilityTargetMask> {
         match self.owner {
+            Some(_) if self.info.is_ok() => Ok(AbilityTargetMask::from_bits_retain(self.targets)),
             Some(h) => Ok(AbilityTargetMask::from_bits_retain(
                 query(|p| unsafe { sys::champion_ability_props(h.0, self.slot, p) })?.targets,
             )),
@@ -474,7 +498,8 @@ impl Ability {
     pub fn can_target_ground(&self) -> Result<bool> {
         Ok(self.valid_targets()?.contains(AbilityTargetMask::GROUND))
     }
-    /// Query this live ability's damage; unsupported kinds propagate the engine error.
+    /// Query Focus-scaled damage, including dash landing damage and caster outgoing bonuses such as Heart of Ruin's passive.
+    /// Excludes target-dependent modifiers, shields and health limits.
     pub fn damage_amount(&self) -> Result<f32> {
         let owner = self.owner()?;
         query(|p| unsafe { sys::champion_ability_damage(owner.0, self.slot, p) })

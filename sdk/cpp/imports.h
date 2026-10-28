@@ -124,7 +124,11 @@ union ability_payload
 		std::int32_t duration;
 	} cc, shield;
 
-	float dash_range;
+	struct
+	{
+		float range, radius, modifier;
+		std::int32_t duration;
+	} dash;
 };
 
 /// Ability properties with a tagged payload.
@@ -193,6 +197,7 @@ struct ward_info
 	std::uint32_t team;
 	std::int32_t x, y, timer;
 	std::uint8_t disabled;
+	std::uint32_t owner;
 };
 
 /// Engine ward observation extension with the exact ABI layout.
@@ -311,6 +316,8 @@ extern "C"
 	BC_IMPORT("board_ally_occupancy") std::int32_t sdk_ally_occupancy(std::uint64_t*);
 	BC_IMPORT("board_enemy_occupancy") std::int32_t sdk_enemy_occupancy(std::uint64_t*);
 	BC_IMPORT("board_camp_occupancy") std::int32_t sdk_camp_occupancy(std::uint64_t*);
+	BC_IMPORT("board_awake_camp_occupancy") std::int32_t sdk_awake_camp_occupancy(std::uint64_t*);
+	BC_IMPORT("board_asleep_camp_occupancy") std::int32_t sdk_asleep_camp_occupancy(std::uint64_t*);
 	BC_IMPORT("board_ally_ward_occupancy") std::int32_t sdk_ally_ward_occupancy(std::uint64_t*);
 	BC_IMPORT("board_enemy_ward_occupancy") std::int32_t sdk_enemy_ward_occupancy(std::uint64_t*);
 	BC_IMPORT("ward_at") std::int32_t sdk_ward_at(std::int32_t, std::int32_t, std::uint32_t*);
@@ -389,6 +396,8 @@ extern "C"
 	BC_IMPORT("map_camp_group_of") std::int32_t sdk_map_camp_group_of(std::uint32_t, std::uint32_t*);
 	BC_IMPORT("map_camp_at") std::int32_t sdk_map_camp_at(std::int32_t, std::int32_t, std::uint32_t*);
 	BC_IMPORT("camp_group_cooldown") std::int32_t sdk_camp_group_cooldown(std::uint32_t, std::int32_t*);
+	struct camp_group_capture_state { std::int32_t timer, state; };
+	BC_IMPORT("camp_group_capture_state") std::int32_t sdk_camp_group_capture_state(std::uint32_t, camp_group_capture_state*);
 	BC_IMPORT("camp_group_state") std::int32_t sdk_camp_group_state(std::uint32_t, std::uint32_t*);
 	BC_IMPORT("camp_buffs") std::int32_t sdk_camp_buffs(std::uint32_t, camp_buff_data*, std::uint32_t, std::uint32_t*);
 	BC_IMPORT("bc_camp_group_max_respawn") std::int32_t sdk_bc_camp_group_max_respawn(std::uint32_t, std::int32_t*);
@@ -397,6 +406,7 @@ extern "C"
 	BC_IMPORT("camp_design") std::int32_t sdk_camp_design(std::int32_t, camp_design*);
 	BC_IMPORT("camp_at") std::int32_t sdk_camp_at(std::int32_t, std::int32_t, std::uint32_t*);
 	BC_IMPORT("champion_at") std::int32_t sdk_champion_at(std::int32_t, std::int32_t, std::uint32_t*);
+	BC_IMPORT("is_visible") std::int32_t sdk_is_visible(std::int32_t, std::int32_t, std::int32_t*);
 	BC_IMPORT("has_camp") std::int32_t sdk_has_camp(std::int32_t, std::int32_t, std::int32_t*);
 	BC_IMPORT("has_champion") std::int32_t sdk_has_champion(std::int32_t, std::int32_t, std::int32_t*);
 	BC_IMPORT("board_vision") std::int32_t sdk_vision(std::uint64_t*);
@@ -511,6 +521,10 @@ extern "C"
 	std::int32_t sdk_DistanceField_Get(const std::uint16_t* buffer, std::int32_t x, std::int32_t y, std::uint16_t* value);
 	BC_IMPORT("bc_DistanceField_Set")
 	std::int32_t sdk_DistanceField_Set(std::uint16_t* buffer, std::int32_t x, std::int32_t y, std::uint16_t value);
+	BC_IMPORT("bc_DistanceField_Copy")
+	std::int32_t sdk_DistanceField_Copy(const std::uint16_t* source, std::uint16_t* destination);
+	BC_IMPORT("bc_DistanceField_CopyWithMask")
+	std::int32_t sdk_DistanceField_CopyWithMask(const std::uint16_t* source, const std::uint64_t* mask, std::uint16_t* destination);
 
 	/// Compute distances with caller-provided visited storage and an expansion count.
 	BC_IMPORT("bc_DistanceField_ComputeWithExpansionCount")
@@ -565,10 +579,14 @@ inline const metadata cached_metadata = []
 	return cached_metadata;
 }
 
+/// Authenticated champion handle (-1 while drafting) and absolute team; fixed for the match.
+inline const std::int32_t cached_my_champion = sdk_my_champion();
+inline const std::int32_t cached_my_team = sdk_my_team();
+
 /// Translate a relative team into the engine's absolute team index; invalid tags throw.
 [[nodiscard]] inline std::int32_t absolute_team(team value)
 {
-	const auto own = sdk_my_team();
+	const auto own = cached_my_team;
 	switch (value)
 	{
 	case team::ally:

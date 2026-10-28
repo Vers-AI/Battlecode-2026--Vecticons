@@ -4,6 +4,10 @@
 //! Raw enum tags and ABI-only fields are validated or kept private by typed wrappers.
 #![allow(non_snake_case)]
 use crate::Vec2;
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
+pub(crate) struct CampGroupCaptureState { pub timer: i32, pub state: i32 }
+const _: () = { assert!(core::mem::size_of::<CampGroupCaptureState>() == 8); };
 /// Exact engine item record; private fields retained even when not publicly exposed.
 #[repr(C)]
 #[derive(Clone, Copy, Default)]
@@ -307,6 +311,8 @@ pub(crate) struct WardInfo {
     pub timer: i32,
     /// Whether this ward is disabled.
     pub disabled: u8,
+    /// Owning champion handle captured while the ward is visible.
+    pub owner: u32,
 }
 /// Engine control-ward observation record; does not imply an action-target handle.
 #[repr(C)]
@@ -425,6 +431,10 @@ unsafe extern "C" {
     pub(crate) fn enemy_occupancy(out_board: *mut u64) -> i32;
     #[link_name = "board_camp_occupancy"]
     pub(crate) fn camp_occupancy(out_board: *mut u64) -> i32;
+    #[link_name = "board_awake_camp_occupancy"]
+    pub(crate) fn awake_camp_occupancy(out_board: *mut u64) -> i32;
+    #[link_name = "board_asleep_camp_occupancy"]
+    pub(crate) fn asleep_camp_occupancy(out_board: *mut u64) -> i32;
     #[link_name = "board_ally_ward_occupancy"]
     pub(crate) fn ally_ward_occupancy(out_board: *mut u64) -> i32;
     #[link_name = "board_enemy_ward_occupancy"]
@@ -598,6 +608,8 @@ unsafe extern "C" {
     #[link_name = "camp_group_cooldown"]
     pub(crate) fn camp_group_cooldown(group: u32, out_cooldown: *mut i32) -> i32;
     /// Exact C-ABI `camp_group_state` host operation; pointer buffers obey the module safety contract.
+    #[link_name = "camp_group_capture_state"]
+    pub(crate) fn camp_group_capture_state(group: u32, out_state: *mut CampGroupCaptureState) -> i32;
     #[link_name = "camp_group_state"]
     pub(crate) fn camp_group_state(group: u32, out_state: *mut u32) -> i32;
     /// Exact C-ABI `camp_buffs` host operation; pointer buffers obey the module safety contract.
@@ -626,6 +638,9 @@ unsafe extern "C" {
     /// Exact C-ABI `champion_at` host operation; pointer buffers obey the module safety contract.
     #[link_name = "champion_at"]
     pub(crate) fn champion_at(x: i32, y: i32, out_handle: *mut u32) -> i32;
+    /// Query one tile in the authenticated champion's effective vision.
+    #[link_name = "is_visible"]
+    pub(crate) fn is_visible(x: i32, y: i32, out_visible: *mut i32) -> i32;
     /// Exact C-ABI `has_camp` host operation; pointer buffers obey the module safety contract.
     #[link_name = "has_camp"]
     pub(crate) fn has_camp(x: i32, y: i32, out_present: *mut i32) -> i32;
@@ -866,6 +881,12 @@ unsafe extern "C" {
     /// Exact C-ABI `DistanceField_Set` host operation; pointer buffers obey the module safety contract.
     #[link_name = "bc_DistanceField_Set"]
     pub(crate) fn DistanceField_Set(field: *mut u16, x: i32, y: i32, distance: u16) -> i32;
+    /// Copy complete distance storage into an existing field.
+    #[link_name = "bc_DistanceField_Copy"]
+    pub(crate) fn DistanceField_Copy(source: *const u16, destination: *mut u16) -> i32;
+    /// Copy mask-selected logical distances into an existing field.
+    #[link_name = "bc_DistanceField_CopyWithMask"]
+    pub(crate) fn DistanceField_CopyWithMask(source: *const u16, mask: *const u64, destination: *mut u16) -> i32;
     /// Exact C-ABI `DistanceField_ComputeWithExpansionCount` host operation; pointer buffers obey the module safety contract.
     #[link_name = "bc_DistanceField_ComputeWithExpansionCount"]
     pub(crate) fn DistanceField_ComputeWithExpansionCount(
@@ -1066,6 +1087,16 @@ pub(crate) unsafe fn enemy_occupancy(out_board: *mut u64) -> i32 {
 #[cfg(test)]
 pub(crate) unsafe fn camp_occupancy(out_board: *mut u64) -> i32 {
     crate::fake::call("board_camp_occupancy", &[out_board as usize]) as i32
+}
+/// Exact C-ABI `awake_camp_occupancy` host operation; pointer buffers obey the module safety contract.
+#[cfg(test)]
+pub(crate) unsafe fn awake_camp_occupancy(out_board: *mut u64) -> i32 {
+    crate::fake::call("board_awake_camp_occupancy", &[out_board as usize]) as i32
+}
+/// Exact C-ABI `asleep_camp_occupancy` host operation; pointer buffers obey the module safety contract.
+#[cfg(test)]
+pub(crate) unsafe fn asleep_camp_occupancy(out_board: *mut u64) -> i32 {
+    crate::fake::call("board_asleep_camp_occupancy", &[out_board as usize]) as i32
 }
 /// Exact C-ABI `ally_ward_occupancy` host operation; pointer buffers obey the module safety contract.
 #[cfg(test)]
@@ -1596,6 +1627,11 @@ pub(crate) unsafe fn champion_at(x: i32, y: i32, out_handle: *mut u32) -> i32 {
         &[x as usize, y as usize, out_handle as usize],
     ) as i32
 }
+/// Test host equivalent of the scalar visibility query.
+#[cfg(test)]
+pub(crate) unsafe fn is_visible(x: i32, y: i32, out_visible: *mut i32) -> i32 {
+    crate::fake::call("is_visible", &[x as usize, y as usize, out_visible as usize]) as i32
+}
 /// Exact C-ABI `has_camp` host operation; pointer buffers obey the module safety contract.
 #[cfg(test)]
 pub(crate) unsafe fn has_camp(x: i32, y: i32, out_present: *mut i32) -> i32 {
@@ -2104,6 +2140,14 @@ pub(crate) unsafe fn DistanceField_Set(field: *mut u16, x: i32, y: i32, distance
         &[field as usize, x as usize, y as usize, distance as usize],
     ) as i32
 }
+#[cfg(test)]
+pub(crate) unsafe fn DistanceField_Copy(source: *const u16, destination: *mut u16) -> i32 {
+    crate::fake::call("bc_DistanceField_Copy", &[source as usize, destination as usize]) as i32
+}
+#[cfg(test)]
+pub(crate) unsafe fn DistanceField_CopyWithMask(source: *const u16, mask: *const u64, destination: *mut u16) -> i32 {
+    crate::fake::call("bc_DistanceField_CopyWithMask", &[source as usize, mask as usize, destination as usize]) as i32
+}
 /// Exact C-ABI `DistanceField_ComputeWithExpansionCount` host operation; pointer buffers obey the module safety contract.
 #[cfg(test)]
 pub(crate) unsafe fn DistanceField_ComputeWithExpansionCount(
@@ -2149,4 +2193,9 @@ pub(crate) unsafe fn DistanceField_ComputeToWithExpansionCount(
             out_expansions as usize,
         ],
     ) as i32
+}
+
+#[cfg(test)]
+pub(crate) unsafe fn camp_group_capture_state(group: u32, out_state: *mut CampGroupCaptureState) -> i32 {
+    crate::fake::call("camp_group_capture_state", &[group as usize, out_state as usize]) as i32
 }
