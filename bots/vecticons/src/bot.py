@@ -442,6 +442,12 @@ class Bot:
             # decides whether a dead champion keeps its consumables).
             self.lock_carried = False
             self.lock_resync = True
+            # F1 CLOSEOUT: a dead champion's chase commitments are void -
+            # the pursuit ends with the pursuer.
+            try:
+                utility.clear_chase_commitments()
+            except Exception:
+                pass
             try:
                 self.shop_turn(snap, "dead")
             except Exception:
@@ -520,6 +526,14 @@ class Bot:
             pass
 
         cand = utility.best(candidates)
+
+        # F1 CLOSEOUT: chase stickiness - record the argmax winner so the
+        # commitment boost in generate_candidates holds the pursuit on
+        # later turns. Cleared on death (the dead branch above).
+        try:
+            utility.record_chase_win(cand)
+        except Exception:
+            pass
 
         # Diagnostic - log every cand.kind for first few rounds.
         try:

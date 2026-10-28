@@ -149,6 +149,32 @@ def _get_enemy_tuple(handle: int) -> tuple | None:
     return _ENEMY_TUPLE_CACHE.get(handle)
 
 
+def record_chase_win(cand) -> None:
+    """Record that this turn's argmax was won by a chase candidate.
+
+    Called by bot.py after `utility.best` picks a chase: the commitment
+    (handle + boosted score) is what the stickiness boost in
+    generate_candidates re-applies on later turns. Without this write,
+    the commitment dict stays empty and the boost never fires.
+    """
+    global _CHASE_COMMITMENT
+    try:
+        if not cand or cand[0] != "chase":
+            return
+        handle = int(cand[1])
+        factor = float(getattr(config, "CHASE_COMMIT_FACTOR", 2.0))
+        boosted = float(cand[2]) * factor
+        _CHASE_COMMITMENT[handle] = (handle, boosted)
+    except Exception:
+        return
+
+
+def clear_chase_commitments() -> None:
+    """Drop every commitment (called on respawn/death from bot.py)."""
+    global _CHASE_COMMITMENT
+    _CHASE_COMMITMENT.clear()
+
+
 # ---------------------------------------------------------------------------
 # Candidate tuple.
 # ---------------------------------------------------------------------------
@@ -1081,18 +1107,32 @@ def _fight_window(snap, enemy, dist, dmg, our_damage):
     RANGED champion must choose between moving and attacking - it cannot
     hit us on the turns it walks. A melee champion of ours has to spend
     turns closing before it can hit back at all.
+
+    FUEL: reach/hp come from the per-turn enemy tuple cache (one engine
+    build per turn in generate_candidates, plain-int reads here).
     """
     our_reach = _our_reach(snap)
     try:
-        their_reach = int(enemy.attack_range())
+        handle = int(enemy)
     except Exception:
-        their_reach = 1
-    try:
-        their_hp = float(enemy.health())
+        handle = -1
+    tup = _get_enemy_tuple(handle)
+    if tup is not None:
+        their_reach = int(tup[2])
+        their_hp = float(tup[4])
         if their_hp <= 0.0:
-            their_hp = float(enemy.max_health())
-    except Exception:
-        their_hp = 0.0
+            their_hp = float(tup[5])
+    else:
+        try:
+            their_reach = int(enemy.attack_range())
+        except Exception:
+            their_reach = 1
+        try:
+            their_hp = float(enemy.health())
+            if their_hp <= 0.0:
+                their_hp = float(enemy.max_health())
+        except Exception:
+            their_hp = 0.0
     if their_hp <= 0.0:
         return None
     our_close = dist - our_reach
@@ -1195,14 +1235,20 @@ def _fight_candidates(snap, field) -> list:
     guard of the S2.3 history: fog candidates are guesses, and a guess
     that costs a field read per enemy is how the budget dies).
 
-    F1 CLOSEOUT (2026-10-28):
-      - Uses enemy tuple cache (_ENEMY_TUPLE_CACHE) instead of re-reading
-        the engine per candidate.
-      - Score-bounded EV: prunes candidates whose gross upper bound cannot
-        win the argmax BEFORE paying the full EV (S2.3 altar-scan pattern).
-      - Chase stickiness: if already chasing a target, a commitment factor
-        (CAPTURE_COMMIT_FACTOR) holds until target dies, exits vision, or
-        score collapses.
+    F1 CLOSEOUT (2026-10-28, wired 2026-10-28 owner-side):
+      - Enemy tuple cache (_ENEMY_TUPLE_CACHE, built once per turn in
+        generate_candidates): the fight/chase loop and _fight_window read
+        positions/bag/hp from the cache as plain ints instead of
+        re-reading the engine per candidate.
+      - Score-bounded EV: _BEST_NON_FIGHT_SCORE (tracked as capture/bank/
+        recall/farm/boss candidates are generated) prunes fight/chase
+        candidates whose gross upper bound cannot win the argmax BEFORE
+        the field read and the full EV (S2.3 altar-scan pattern).
+      - Chase stickiness: when a chase candidate WINS the argmax, the
+        handle and score are recorded in _CHASE_COMMITMENT; on later
+        turns the same target's score is re-boosted by
+        CHASE_COMMIT_FACTOR until the target exits vision, dies, or the
+        base score collapses below CHASE_COMMIT_MIN.
     """
     view = _hostile_threat(snap)
     enemies = view["all"]
@@ -1224,23 +1270,31 @@ def _fight_candidates(snap, field) -> list:
             attack_tiles = None
     chases = []
     max_chase_turns = int(config.CHASE_MAX_TURNS)
-    
-    # F1 CLOSEOUT: score-bounded EV pruning.
-    # Get the current best score from existing candidates (capture, bank, recall)
-    # so we can prune fight/chase candidates whose gross upper bound can't win.
-    best_other_score = 0.0
-    # This is called from generate_candidates after capture/bank/recall are added.
-    # We'll pass the best score as a parameter or read from a module-level.
-    
+    # F1 CLOSEOUT: the score bound for EV pruning - the best score the
+    # non-combat generators have already produced this turn (capture/
+    # bank/recall/farm/boss). A fight/chase whose GROSS upper bound
+    # cannot beat it is dropped before the field read and the EV.
+    best_other_score = _BEST_NON_FIGHT_SCORE
+
     for enemy, dist, dmg in enemies:
         try:
-            pos = enemy.position()
-            ex = int(pos.x)
-            ey = int(pos.y)
+            handle = int(enemy)
         except Exception:
-            continue
+            handle = -1
+        tup = _get_enemy_tuple(handle)
+        if tup is not None:
+            ex = int(tup[0])
+            ey = int(tup[1])
+            pos = None  # derived below only when needed
+        else:
+            try:
+                pos = enemy.position()
+                ex = int(pos.x)
+                ey = int(pos.y)
+            except Exception:
+                continue
         in_range = False
-        if attack_tiles is not None:
+        if attack_tiles is not None and pos is not None:
             try:
                 in_range = bool(attack_tiles.is_set(pos))
             except Exception:
@@ -1255,6 +1309,12 @@ def _fight_candidates(snap, field) -> list:
         if value <= 0.0:
             continue
         if in_range:
+            # Score-bound: at P(win)=1 the EV is gain + our bag (the
+            # success branch credits the carried bag), so that is the
+            # fight's gross upper bound; if even that cannot beat the
+            # best non-fight candidate, skip the EV arithmetic.
+            if value + _our_bag(snap) <= best_other_score:
+                continue
             ratio = window["incoming"] / hp if hp > 0.0 else 9.9
             win = _fight_win(ratio)
             gain = value * (discount ** max(0, window["kill_turns"]))
@@ -1264,15 +1324,30 @@ def _fight_candidates(snap, field) -> list:
             out.append(["fight", enemy, score, note, None])
             continue
         # Not in our reach: a CHASE candidate (the courier hunt).
-        try:
-            bag = int(enemy.gem_count())
-        except Exception:
-            bag = 0
+        if tup is not None:
+            bag = int(tup[6])
+        else:
+            try:
+                bag = int(enemy.gem_count())
+            except Exception:
+                bag = 0
         if bag < int(config.CHASE_MIN_BAG):
             continue
         if field is None:
             continue
+        # Score-bound BEFORE the field read (the expensive part of a
+        # chase candidate): at p=CHASE_SUCCESS_FACTOR the best possible
+        # EV is p*(gain + our bag), so that is the chase's gross upper
+        # bound; if it cannot beat the best non-fight candidate, the
+        # field read is never paid.
+        upper = (value + _our_bag(snap)) * (discount ** max(0, dist)) * float(
+            config.CHASE_SUCCESS_FACTOR
+        )
+        if upper <= best_other_score:
+            continue
         try:
+            if pos is None:
+                pos = enemy.position()
             d = field.get(pos)
         except Exception:
             continue
@@ -1305,12 +1380,22 @@ def _kill_value(snap, enemy, ex, ey) -> float:
     gold is priced at the standard gold rate, and the denial term is the
     victim's own production for the respawn window (see config for the
     measurement behind every constant).
+    FUEL: the bag comes from the per-turn enemy tuple cache when present.
     """
     value = 0.0
+    bag = None
     try:
-        value += float(enemy.gem_count())
+        tup = _get_enemy_tuple(int(enemy))
+        if tup is not None:
+            bag = int(tup[6])
     except Exception:
-        pass
+        bag = None
+    if bag is None:
+        try:
+            bag = int(enemy.gem_count())
+        except Exception:
+            bag = 0
+    value += float(bag)
     value += float(config.KILL_REWARD_GOLD) * float(config.FIGHT_GOLD_VALUE)
     value += float(config.FIGHT_DENIAL_VALUE) * _denial_scale(snap)
     value += _capture_reset_value(snap, ex, ey)
@@ -2321,7 +2406,12 @@ def generate_candidates(snap) -> list[Candidate]:
         _report("boss generator", error)
 
     # F1 CLOSEOUT: Chase stickiness - if already chasing a target, boost its score
-    # using CAPTURE_COMMIT_FACTOR pattern until target dies, exits vision, or score collapses.
+    # using CHASE_COMMIT_FACTOR until target dies, exits vision, or score collapses.
+    # Record: when a chase candidate wins this turn's argmax, the handle and its
+    # boosted score are written to _CHASE_COMMITMENT (bot.py calls
+    # utility.record_chase_win after the argmax); on later turns the same
+    # target's score is re-boosted here so a one-tile score dip cannot
+    # drop the pursuit (the documented oscillator class).
     try:
         global _CHASE_COMMITMENT
         if _CHASE_COMMITMENT:
@@ -2337,12 +2427,27 @@ def generate_candidates(snap) -> list[Candidate]:
                     del _CHASE_COMMITMENT[handle]
                     continue
                 committed_handle, boosted_score = _CHASE_COMMITMENT[handle]
-                # Find the chase candidate for this target and boost it
+                # Find the chase candidate for this target and boost it.
+                # Candidates carry the enemy object; int(enemy) is the engine
+                # handle, the same key the commitment is stored under.
                 for c in out:
-                    if c[0] == "chase" and int(c[1]) == committed_handle:
-                        c[2] = boosted_score
-                        c[3] = c[3] + " COMMIT"
-                        break
+                    if c[0] != "chase":
+                        continue
+                    try:
+                        if int(c[1]) != committed_handle:
+                            continue
+                    except Exception:
+                        continue
+                    # The commitment holds only while the base chase is still
+                    # worth something: a collapsed base score ends it.
+                    factor = float(getattr(config, "CHASE_COMMIT_FACTOR", 2.0))
+                    c[2] = max(float(c[2]), float(c[2]) * factor)
+                    if float(c[2]) < float(getattr(config, "CHASE_COMMIT_MIN", 0.5)):
+                        del _CHASE_COMMITMENT[handle]
+                        continue
+                    _CHASE_COMMITMENT[handle] = (committed_handle, float(c[2]))
+                    c[3] = c[3] + " COMMIT"
+                    break
     except Exception:
         pass
 

@@ -434,6 +434,15 @@ CHASE_SUCCESS_FACTOR: float = 0.6
 # The share of our stake we put at risk while walking to a courier: a
 # chase can be abandoned, so it is cheaper than a fight.
 CHASE_STAKE_SHARE: float = 0.3
+# F1 CLOSEOUT: chase stickiness (the anti-oscillator commitment). Once a
+# chase wins the argmax, its score is multiplied by CHASE_COMMIT_FACTOR
+# on subsequent turns so a one-tile score dip cannot drop the pursuit
+# (the documented disease class: candidates whose scores cross flip the
+# argmax every turn). The commitment ends when the target exits vision,
+# dies (it leaves visible_enemies), or the base score collapses below
+# CHASE_COMMIT_MIN gem-equivalents (the walk stopped being worth it).
+CHASE_COMMIT_FACTOR: float = 2.0   # PLACEHOLDER. Score multiplier while committed.
+CHASE_COMMIT_MIN: float = 0.5      # PLACEHOLDER. Base score floor to keep a commitment.
 # Threat term (the "never mid-farm-inert" rule). A hostile champion within
 # THREAT_PURSUE_TILES of its own attack range is priced as incoming
 # damage on the action we are scoring: farming or banking while someone
