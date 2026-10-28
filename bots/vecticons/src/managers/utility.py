@@ -101,6 +101,8 @@ from managers import observation
 # The cache key is the engine handle (int(enemy)), so the same enemy
 # across generators hits the cached tuple.
 _ENEMY_TUPLE_CACHE: dict[int, tuple[int, int, int, float, float, float, int]] = {}
+# Filled by _hostile_threat's per-turn pass (see _get_enemy_tuple): one
+# engine pass per turn builds the threat picture AND the tuple cache.
 
 
 # F1 CLOSEOUT (2026-10-28): Chase stickiness state
@@ -114,38 +116,14 @@ _CHASE_COMMITMENT: dict[str, tuple[int, float]] = {}  # target_handle -> (target
 _BEST_NON_FIGHT_SCORE: float = 0.0
 
 
-def _build_enemy_tuple_cache(snap) -> None:
-    """Build the enemy tuple cache for this turn. Called once from generate_candidates."""
-    global _ENEMY_TUPLE_CACHE
-    _ENEMY_TUPLE_CACHE.clear()
-    try:
-        enemies = getattr(snap, "visible_enemies", ()) or ()
-    except Exception:
-        return
-    for enemy in enemies:
-        try:
-            if not enemy.is_visible():
-                continue
-            pos = enemy.position()
-            ex = int(pos.x)
-            ey = int(pos.y)
-            reach = int(enemy.attack_range())
-            dmg = float(enemy.strength())
-            if dmg <= 0.0:
-                dmg = 20.0
-            hp = float(enemy.health())
-            if hp <= 0.0:
-                hp = float(enemy.max_hp())
-            max_hp = float(enemy.max_hp())
-            bag = int(enemy.gem_count())
-            handle = int(enemy)
-            _ENEMY_TUPLE_CACHE[handle] = (ex, ey, reach, dmg, hp, max_hp, bag)
-        except Exception:
-            continue
-
-
 def _get_enemy_tuple(handle: int) -> tuple | None:
-    """Get the cached enemy tuple by engine handle."""
+    """Get the cached enemy tuple by engine handle.
+
+    The cache is filled by _hostile_threat's per-turn pass (one engine
+    pass, shared with the threat picture) - there is no separate build
+    pass, and the previous turn's entries are cleared at the top of the
+    pass.
+    """
     return _ENEMY_TUPLE_CACHE.get(handle)
 
 
@@ -902,6 +880,11 @@ def _hostile_threat(snap) -> dict:
     cached on the snapshot, because the fight, chase, flee, farm, bank and
     capture generators all read it.
 
+    F1 CLOSEOUT: the pass also fills the enemy tuple cache
+    (_ENEMY_TUPLE_CACHE) with the full read set (pos/reach/dmg/hp/max_hp/
+    bag as plain ints) - ONE engine pass per turn instead of the separate
+    cache-build pass that measured +14% fuel on the closeout campaign.
+
     Two radii:
       CONTACT - the enemy is inside its OWN attack range: it can hit us
                 on its next attack.
@@ -919,6 +902,9 @@ def _hostile_threat(snap) -> dict:
     cached = getattr(snap, "threat_view", None)
     if cached is not None:
         return cached
+    # F1 CLOSEOUT: the tuple cache is filled inside this pass; clear the
+    # previous turn's entries first.
+    _ENEMY_TUPLE_CACHE.clear()
     view = {
         "all": [],       # (enemy, dist, damage)
         "contact": [],   # (enemy, dist, damage) - can hit us NOW
@@ -948,6 +934,18 @@ def _hostile_threat(snap) -> dict:
                 dmg = 20.0
         except Exception:
             continue
+        # F1 CLOSEOUT: fill the tuple cache in THIS pass - hp/max_hp/bag
+        # are the only extra reads, and the position/strength/range reads
+        # are already paid for above.
+        try:
+            hp = float(enemy.health())
+            if hp <= 0.0:
+                hp = float(enemy.max_hp())
+            max_hp = float(enemy.max_hp())
+            bag = int(enemy.gem_count())
+            _ENEMY_TUPLE_CACHE[int(enemy)] = (ex, ey, reach, dmg, hp, max_hp, bag)
+        except Exception:
+            pass
         dx = ex - px
         if dx < 0:
             dx = -dx
@@ -955,7 +953,7 @@ def _hostile_threat(snap) -> dict:
         if dy < 0:
             dy = -dy
         dist = dx if dx > dy else dy
-        entry = (enemy, dist, dmg)
+        entry = (enemy, dist, dmg, pos)
         view["all"].append(entry)
         if dist <= reach:
             view["contact"].append(entry)
@@ -1276,7 +1274,7 @@ def _fight_candidates(snap, field) -> list:
     # cannot beat it is dropped before the field read and the EV.
     best_other_score = _BEST_NON_FIGHT_SCORE
 
-    for enemy, dist, dmg in enemies:
+    for enemy, dist, dmg, pos in enemies:
         try:
             handle = int(enemy)
         except Exception:
@@ -1285,7 +1283,10 @@ def _fight_candidates(snap, field) -> list:
         if tup is not None:
             ex = int(tup[0])
             ey = int(tup[1])
-            pos = None  # derived below only when needed
+            # pos travels WITH the threat entry (the same Vec2 read the
+            # threat pass already paid for); the fight candidate needs it
+            # for the attack-tiles membership test, the chase candidate
+            # for the field read. Never None here.
         else:
             try:
                 pos = enemy.position()
@@ -1487,7 +1488,7 @@ def _flee_candidates(snap) -> list:
     if not contact:
         return []
     best = None
-    for enemy, dist, dmg in contact:
+    for enemy, dist, dmg, pos in contact:
         try:
             reach = int(enemy.attack_range())
         except Exception:
@@ -2338,8 +2339,9 @@ def generate_candidates(snap) -> list[Candidate]:
     candidate's distance. Defensive: each subgenerator is wrapped so a
     failure in one kind does not break the others.
     """
-    # F1 CLOSEOUT: build the enemy tuple cache once per turn.
-    _build_enemy_tuple_cache(snap)
+    # F1 CLOSEOUT: the enemy tuple cache is filled inside
+    # _hostile_threat's per-turn pass (no separate build pass); the
+    # fight generator's first _hostile_threat call primes it.
     global _BEST_NON_FIGHT_SCORE
     _BEST_NON_FIGHT_SCORE = 0.0
     out = []
