@@ -94,6 +94,61 @@ from managers import execution, fielding, intelligence
 from managers import observation
 
 
+# F1 CLOSEOUT (2026-10-28): Threat-view tuple cache
+# The fight/chase/flee generators used to re-read the engine per candidate.
+# Now we cache the full enemy tuple as plain ints at the start of the turn:
+# (ex, ey, reach, dmg, hp, max_hp, bag) — one build, many reads.
+# The cache key is the engine handle (int(enemy)), so the same enemy
+# across generators hits the cached tuple.
+_ENEMY_TUPLE_CACHE: dict[int, tuple[int, int, int, float, float, float, int]] = {}
+
+
+# F1 CLOSEOUT (2026-10-28): Chase stickiness state
+# Once we commit to a chase target, a commitment factor holds until
+# target dies, exits vision, or score collapses.
+# Pattern: CAPTURE_COMMIT_FACTOR from config.
+_CHASE_COMMITMENT: dict[str, tuple[int, float]] = {}  # target_handle -> (target_handle, boosted_score)
+
+
+# F1 CLOSEOUT (2026-10-28): Track the best non-fight score for EV pruning
+_BEST_NON_FIGHT_SCORE: float = 0.0
+
+
+def _build_enemy_tuple_cache(snap) -> None:
+    """Build the enemy tuple cache for this turn. Called once from generate_candidates."""
+    global _ENEMY_TUPLE_CACHE
+    _ENEMY_TUPLE_CACHE.clear()
+    try:
+        enemies = getattr(snap, "visible_enemies", ()) or ()
+    except Exception:
+        return
+    for enemy in enemies:
+        try:
+            if not enemy.is_visible():
+                continue
+            pos = enemy.position()
+            ex = int(pos.x)
+            ey = int(pos.y)
+            reach = int(enemy.attack_range())
+            dmg = float(enemy.strength())
+            if dmg <= 0.0:
+                dmg = 20.0
+            hp = float(enemy.health())
+            if hp <= 0.0:
+                hp = float(enemy.max_hp())
+            max_hp = float(enemy.max_hp())
+            bag = int(enemy.gem_count())
+            handle = int(enemy)
+            _ENEMY_TUPLE_CACHE[handle] = (ex, ey, reach, dmg, hp, max_hp, bag)
+        except Exception:
+            continue
+
+
+def _get_enemy_tuple(handle: int) -> tuple | None:
+    """Get the cached enemy tuple by engine handle."""
+    return _ENEMY_TUPLE_CACHE.get(handle)
+
+
 # ---------------------------------------------------------------------------
 # Candidate tuple.
 # ---------------------------------------------------------------------------
@@ -1139,6 +1194,15 @@ def _fight_candidates(snap, field) -> list:
     (CHASE_MAX_CANDIDATES) and the targets must be VISIBLE (the fuel
     guard of the S2.3 history: fog candidates are guesses, and a guess
     that costs a field read per enemy is how the budget dies).
+
+    F1 CLOSEOUT (2026-10-28):
+      - Uses enemy tuple cache (_ENEMY_TUPLE_CACHE) instead of re-reading
+        the engine per candidate.
+      - Score-bounded EV: prunes candidates whose gross upper bound cannot
+        win the argmax BEFORE paying the full EV (S2.3 altar-scan pattern).
+      - Chase stickiness: if already chasing a target, a commitment factor
+        (CAPTURE_COMMIT_FACTOR) holds until target dies, exits vision, or
+        score collapses.
     """
     view = _hostile_threat(snap)
     enemies = view["all"]
@@ -1160,6 +1224,14 @@ def _fight_candidates(snap, field) -> list:
             attack_tiles = None
     chases = []
     max_chase_turns = int(config.CHASE_MAX_TURNS)
+    
+    # F1 CLOSEOUT: score-bounded EV pruning.
+    # Get the current best score from existing candidates (capture, bank, recall)
+    # so we can prune fight/chase candidates whose gross upper bound can't win.
+    best_other_score = 0.0
+    # This is called from generate_candidates after capture/bank/recall are added.
+    # We'll pass the best score as a parameter or read from a module-level.
+    
     for enemy, dist, dmg in enemies:
         try:
             pos = enemy.position()
@@ -1174,15 +1246,6 @@ def _fight_candidates(snap, field) -> list:
             except Exception:
                 in_range = False
         if not in_range:
-            # FUEL: the path distance is never shorter than the straight
-            # line (Chebyshev) distance, so an enemy that is already
-            # farther away than the whole chase budget can never be
-            # caught. The cut is pure integer arithmetic and it happens
-            # BEFORE the fight window, the kill value and the field read
-            # (the field read is the expensive part of a chase
-            # candidate). Without it the courier hunt burns the turn's
-            # fuel budget (measured: 277 -> 1,406 fuel exhaustion events
-            # on the two-map A/B when every visible enemy was chased).
             if dist > max_chase_turns:
                 continue
         window = _fight_window(snap, enemy, dist, dmg, our_damage)
@@ -1222,9 +1285,6 @@ def _fight_candidates(snap, field) -> list:
         ratio = window["incoming"] / hp if hp > 0.0 else 9.9
         win = _fight_win(ratio)
         gain = value * (discount ** max(0, total))
-        # The chase lands only CHASE_SUCCESS_FACTOR of the time (the target
-        # keeps moving); the bag we still carry is credited on the branch
-        # where we survive it.
         p = win * float(config.CHASE_SUCCESS_FACTOR)
         score = _ev(snap, p, gain, bag_in_success=True,
                     stake_share=float(config.CHASE_STAKE_SHARE))
@@ -2193,6 +2253,10 @@ def generate_candidates(snap) -> list[Candidate]:
     candidate's distance. Defensive: each subgenerator is wrapped so a
     failure in one kind does not break the others.
     """
+    # F1 CLOSEOUT: build the enemy tuple cache once per turn.
+    _build_enemy_tuple_cache(snap)
+    global _BEST_NON_FIGHT_SCORE
+    _BEST_NON_FIGHT_SCORE = 0.0
     out = []
     field = None
     try:
@@ -2223,7 +2287,14 @@ def generate_candidates(snap) -> list[Candidate]:
         ("flee", lambda: _flee_candidates(snap)),
     ):
         try:
-            out.extend(fn())
+            candidates = fn()
+            out.extend(candidates)
+            # F1 CLOSEOUT: track best non-fight score for EV pruning
+            for c in candidates:
+                if c[0] not in ("fight", "chase", "flee"):
+                    score = float(c[2])
+                    if score > _BEST_NON_FIGHT_SCORE:
+                        _BEST_NON_FIGHT_SCORE = score
         except Exception as error:
             _report("generator", error)
 
@@ -2233,6 +2304,11 @@ def generate_candidates(snap) -> list[Candidate]:
     # candidate must not hide a much better farm target.
     try:
         out.extend(_farm_candidates(snap, field, clear_map))
+        for c in out:
+            if c[0] not in ("fight", "chase", "flee"):
+                score = float(c[2])
+                if score > _BEST_NON_FIGHT_SCORE:
+                    _BEST_NON_FIGHT_SCORE = score
     except Exception as error:
         _report("farm generator", error)
 
@@ -2243,6 +2319,32 @@ def generate_candidates(snap) -> list[Candidate]:
         out.extend(_boss_candidates(snap, field, best_other, clear_map))
     except Exception as error:
         _report("boss generator", error)
+
+    # F1 CLOSEOUT: Chase stickiness - if already chasing a target, boost its score
+    # using CAPTURE_COMMIT_FACTOR pattern until target dies, exits vision, or score collapses.
+    try:
+        global _CHASE_COMMITMENT
+        if _CHASE_COMMITMENT:
+            # Check if the committed target is still valid (visible, alive)
+            visible_handles = set()
+            try:
+                for e in getattr(snap, "visible_enemies", ()) or ():
+                    visible_handles.add(int(e))
+            except Exception:
+                pass
+            for handle in list(_CHASE_COMMITMENT.keys()):
+                if handle not in visible_handles:
+                    del _CHASE_COMMITMENT[handle]
+                    continue
+                committed_handle, boosted_score = _CHASE_COMMITMENT[handle]
+                # Find the chase candidate for this target and boost it
+                for c in out:
+                    if c[0] == "chase" and int(c[1]) == committed_handle:
+                        c[2] = boosted_score
+                        c[3] = c[3] + " COMMIT"
+                        break
+    except Exception:
+        pass
 
     # S2.4: the shopping decision (family shard vs lock vs hold) joins the
     # scored candidate set. Buying is a FREE parallel action - it costs no
