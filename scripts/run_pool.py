@@ -188,6 +188,8 @@ def main():
     ap.add_argument("--release", action="store_true", help="platform-faithful mode")
     ap.add_argument("--cambc", default=None, help="cambc binary path")
     ap.add_argument("--maps", default="", help="comma-separated map subset")
+    ap.add_argument("--pool", type=int, default=0,
+                    help="cap the pool at N maps (deterministic sorted order)")
     args = ap.parse_args()
 
     project = Path(args.project_root).resolve()
@@ -196,6 +198,11 @@ def main():
     if args.maps:
         wanted = [m.strip() for m in args.maps.split(",") if m.strip()]
         maps = [m for m in maps if m in wanted]
+    if args.pool:
+        if args.pool > len(maps):
+            ap.error(f"--pool {args.pool} requested but the pool holds "
+                     f"{len(maps)} maps")
+        maps = maps[:args.pool]
     out_dir = project / "results" / args.label
     out_dir.mkdir(parents=True, exist_ok=True)
     print(f"[{args.label}] {len(maps)} maps | bot-a={args.bot_a} | "
