@@ -40,10 +40,68 @@ Outputs (under <project-root>/results/<label>/):
 import argparse
 import concurrent.futures as cf
 import json
+import re
 import subprocess
 import sys
 import time
+import zipfile
 from pathlib import Path
+
+
+# F1 close-out evidence: the bot prints one line per champion per 100
+# rounds ("f1: <champion> hits=.. misses=.. prunes=.. commits=.. boosts=..")
+# into the replay bundle's team-a.stdout. These counters are the proof
+# that the three close-out mechanisms actually RAN (the threat-view tuple
+# cache, the score-bounded EV prune, the chase commitment).
+F1_LINE = re.compile(
+    r"f1:\s+(?P<champ>\S+)\s+"
+    r"hits=(?P<hits>\d+)\s+misses=(?P<misses>\d+)\s+"
+    r"prunes=(?P<prunes>\d+)\s+commits=(?P<commits>\d+)\s+"
+    r"boosts=(?P<boosts>\d+)\s+r=(?P<r>\d+)"
+)
+REPLAY_PATH = re.compile(r"^replay bundle:\s+(?P<path>.+?)\s*$", re.M)
+
+
+def harvest_f1_counters(stdout: str, replay: Path | None) -> dict:
+    """The last f1: counter line per champion, summed.
+
+    The bot runs ONE process per champion, so each champion has its own
+    counter line; the last line of a champion carries its final totals.
+    """
+    per_champ: dict = {}
+    if replay is not None and replay.exists():
+        try:
+            with zipfile.ZipFile(replay) as zf:
+                for name in zf.namelist():
+                    if not name.endswith("team-a.stdout"):
+                        continue
+                    text = zf.read(name).decode("utf-8", "replace")
+                    for line in text.splitlines():
+                        # The WASI stdout framing prefixes NUL bytes.
+                        line = line.replace("\x00", "")
+                        m = F1_LINE.search(line)
+                        if not m:
+                            continue
+                        champ = m.group("champ")
+                        per_champ[champ] = {
+                            "hits": int(m.group("hits")),
+                            "misses": int(m.group("misses")),
+                            "prunes": int(m.group("prunes")),
+                            "commits": int(m.group("commits")),
+                            "boosts": int(m.group("boosts")),
+                            "round": int(m.group("r")),
+                        }
+        except Exception:
+            return {}
+    total = {"cache_hits": 0, "cache_misses": 0, "ev_prunes": 0,
+             "chase_commits": 0, "chase_boosts": 0, "champions": len(per_champ)}
+    for facts in per_champ.values():
+        total["cache_hits"] += facts["hits"]
+        total["cache_misses"] += facts["misses"]
+        total["ev_prunes"] += facts["prunes"]
+        total["chase_commits"] += facts["commits"]
+        total["chase_boosts"] += facts["boosts"]
+    return total
 
 
 def run_match(cambc, project, bot_a, bot_b, map_name, out_dir, release,
@@ -69,8 +127,13 @@ def run_match(cambc, project, bot_a, bot_b, map_name, out_dir, release,
         if not stats_path.exists():
             return {"map": map_name, "status": "no-stats",
                     "seconds": round(time.time() - t0, 1)}
+        replay = None
+        m = REPLAY_PATH.search(proc.stdout)
+        if m:
+            replay = Path(m.group("path"))
         return {"map": map_name, "status": "ok",
                 "seconds": round(time.time() - t0, 1),
+                "f1": harvest_f1_counters(proc.stdout, replay),
                 "stats": json.loads(stats_path.read_text())}
     except subprocess.TimeoutExpired:
         log_path.write_text(f"TIMEOUT after {timeout}s")
@@ -135,6 +198,8 @@ def extract(stats, side):
 
 def aggregate(results, label, our_side="teamA"):
     rows, wins, total_gems, faults = [], 0, 0, 0
+    f1_total = {"cache_hits": 0, "cache_misses": 0, "ev_prunes": 0,
+                "chase_commits": 0, "chase_boosts": 0}
     for r in sorted(results, key=lambda r: r["map"]):
         if r["status"] != "ok" or not r.get("stats"):
             rows.append({"map": r["map"], "status": r["status"]})
@@ -144,6 +209,9 @@ def aggregate(results, label, our_side="teamA"):
         wins += 1 if a["win"] else 0
         total_gems += a["gems"]
         faults += a["bot_faults"]
+        f1 = r.get("f1") or {}
+        for key in f1_total:
+            f1_total[key] += int(f1.get(key, 0) or 0)
         rows.append({"map": r["map"], "status": "ok", "win": a["win"],
                      "gems": a["gems"], "opp_gems": b["gems"],
                      "camps": a["camps_cleared"], "deaths": a["deaths"],
@@ -153,6 +221,8 @@ def aggregate(results, label, our_side="teamA"):
                      "consumables": a["consumables_bought"],
                      "emblems": a["emblems_made"],
                      "bot_faults": a["bot_faults"], "rounds": a["rounds"],
+                     "opp_bot_faults": b["bot_faults"],
+                     "f1": f1,
                      "seconds": r["seconds"]})
     n_ok = sum(1 for r in rows if r.get("status") == "ok")
     return {"label": label, "matches": len(rows), "wins": wins,
@@ -173,7 +243,11 @@ def aggregate(results, label, our_side="teamA"):
                                    if r.get("status") == "ok"),
             "maps_with_wards": sum(1 for r in rows
                                     if r.get("status") == "ok" and r.get("wards", 0) > 0),
-            "bot_faults": faults, "rows": rows}
+            "bot_faults": faults,
+            "opp_bot_faults": sum(r.get("opp_bot_faults", 0) for r in rows
+                                   if r.get("status") == "ok"),
+            "f1_counters": f1_total,
+            "rows": rows}
 
 
 def main():
@@ -190,6 +264,9 @@ def main():
     ap.add_argument("--maps", default="", help="comma-separated map subset")
     ap.add_argument("--pool", type=int, default=0,
                     help="cap the pool at N maps (deterministic sorted order)")
+    ap.add_argument("--verdict-file", default="",
+                    help="file whose contents are the gemfight replay verdict; "
+                         "printed on stdout with the campaign summary")
     args = ap.parse_args()
 
     project = Path(args.project_root).resolve()
@@ -217,8 +294,15 @@ def main():
         for i, fut in enumerate(cf.as_completed(futs), 1):
             r = fut.result()
             results.append(r)
+            f1 = r.get("f1") or {}
             print(f"[{args.label}] ({i}/{len(maps)}) {futs[fut]}: {r['status']} "
-                  f"({r['seconds']}s)", flush=True)
+                  f"({r['seconds']}s)"
+                  + (f" | f1 hits={f1.get('cache_hits', 0)} "
+                     f"misses={f1.get('cache_misses', 0)} "
+                     f"prunes={f1.get('ev_prunes', 0)} "
+                     f"commits={f1.get('chase_commits', 0)} "
+                     f"boosts={f1.get('chase_boosts', 0)}"
+                     if f1 else ""), flush=True)
 
     agg = aggregate(results, args.label)
     agg["elapsed_minutes"] = round((time.time() - t0) / 60, 1)
@@ -247,11 +331,26 @@ def main():
                          f"{r.get('wards', 0)} | {r.get('buys', 0)} | {r.get('consumables', 0)} | "
                          f"{r['bot_faults']} | {r['rounds']} | {r['seconds']} |")
     (out_dir / "table.md").write_text("\n".join(lines) + "\n")
+    f1 = agg.get("f1_counters", {})
     print(f"[{args.label}] DONE {agg['wins']}-{agg['losses']} | "
           f"{agg['total_gems']} gems | fuel {agg.get('total_fuel_exhausted', 0)} | "
           f"wards {agg.get('total_wards', 0)} | buys {agg.get('total_buys', 0)} | "
           f"consumables {agg.get('total_consumables', 0)} | "
           f"{agg['bot_faults']} faults | {agg['elapsed_minutes']} min", flush=True)
+    # F1 close-out evidence: the three mechanisms' counters, on stdout.
+    print(f"[{args.label}] THREAT CACHE hits={f1.get('cache_hits', 0)} "
+          f"misses={f1.get('cache_misses', 0)} | "
+          f"EV PRUNES={f1.get('ev_prunes', 0)} | "
+          f"CHASE COMMITS={f1.get('chase_commits', 0)} "
+          f"(boosts={f1.get('chase_boosts', 0)})", flush=True)
+    if args.verdict_file:
+        vp = Path(args.verdict_file)
+        if vp.exists():
+            verdict = vp.read_text().strip()
+            print(f"[{args.label}] GEMFIGHT REPLAY VERDICT: {verdict}", flush=True)
+        else:
+            print(f"[{args.label}] GEMFIGHT REPLAY VERDICT: (missing {vp})",
+                  flush=True)
 
 
 if __name__ == "__main__":

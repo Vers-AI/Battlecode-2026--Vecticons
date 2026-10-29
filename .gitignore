@@ -26,3 +26,5 @@ records/*
 !records/s24-campaign/****
 !records/dominance-v1/
 !records/dominance-v1/**
+!records/f1-closeout/
+!records/f1-closeout/**

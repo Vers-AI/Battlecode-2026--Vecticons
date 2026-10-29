@@ -98,8 +98,8 @@ from managers import observation
 # The fight/chase/flee generators used to re-read the engine per candidate.
 # Now we cache the full enemy tuple as plain ints at the start of the turn:
 # (ex, ey, reach, dmg, hp, max_hp, bag) — one build, many reads.
-# The cache key is the engine handle (int(enemy)), so the same enemy
-# across generators hits the cached tuple.
+# The cache key is the engine handle (_enemy_handle(enemy)), so the same
+# enemy across generators hits the cached tuple.
 _ENEMY_TUPLE_CACHE: dict[int, tuple[int, int, int, float, float, float, int]] = {}
 # Filled by _hostile_threat's per-turn pass (see _get_enemy_tuple): one
 # engine pass per turn builds the threat picture AND the tuple cache.
@@ -116,6 +116,62 @@ _CHASE_COMMITMENT: dict[str, tuple[int, float]] = {}  # target_handle -> (target
 _BEST_NON_FIGHT_SCORE: float = 0.0
 
 
+# F1 CLOSEOUT (2026-10-28): the stdout evidence counters.
+#
+#   _CACHE_HITS   - a consumer was served the enemy tuple from the
+#                   per-turn cache (no engine read)
+#   _CACHE_MISSES - a consumer asked for an enemy the cache did not hold
+#                   (the fallback engine read path)
+#   _EV_PRUNES    - a fight/chase candidate was dropped by the score bound
+#                   BEFORE the full EV math (and, for a chase, before the
+#                   field read)
+#   _CHASE_COMMITS- a chase commitment was RECORDED (a new target)
+#   _CHASE_BOOSTS - a recorded commitment was re-applied to its target
+#
+# These are the numbers the close-out campaign must show on stdout; they
+# are printed by bot.py (rate limited, a regular print so it survives
+# --release) and harvested from the replay bundle by scripts/run_pool.py.
+_CACHE_HITS: int = 0
+_CACHE_MISSES: int = 0
+_EV_PRUNES: int = 0
+_CHASE_COMMITS: int = 0
+_CHASE_BOOSTS: int = 0
+
+
+def counters() -> dict:
+    """The close-out counters (the stdout evidence of the three mechanisms)."""
+    return {
+        "cache_hits": int(_CACHE_HITS),
+        "cache_misses": int(_CACHE_MISSES),
+        "ev_prunes": int(_EV_PRUNES),
+        "chase_commits": int(_CHASE_COMMITS),
+        "chase_boosts": int(_CHASE_BOOSTS),
+    }
+
+
+def _enemy_handle(enemy) -> int:
+    """The stable engine handle of a champion - THE CACHE KEY.
+
+    `int(enemy)` is NOT the handle: the champion object exposes
+    `__index__`, and `int(champion)` raises TypeError. The fill and the
+    read must use the SAME key, or the cache never hits - which is
+    exactly what the close-out smoke test measured (hits=0, misses=126:
+    the tuple cache and the chase commitment were dead).
+
+    The pattern mirrors managers.intelligence._handle: __index__ first,
+    the champion type as a degraded fallback (two mirror-picked enemies
+    of the same type can share a key - acceptable last resort), and -1
+    when even that fails (never cached under -1).
+    """
+    try:
+        return int(enemy.__index__())
+    except Exception:
+        try:
+            return int(enemy.champion_name())
+        except Exception:
+            return -1
+
+
 def _get_enemy_tuple(handle: int) -> tuple | None:
     """Get the cached enemy tuple by engine handle.
 
@@ -123,8 +179,17 @@ def _get_enemy_tuple(handle: int) -> tuple | None:
     pass, shared with the threat picture) - there is no separate build
     pass, and the previous turn's entries are cleared at the top of the
     pass.
+
+    Every read is counted: a hit is a consumer served from plain ints, a
+    miss is a consumer that had to fall back to the engine.
     """
-    return _ENEMY_TUPLE_CACHE.get(handle)
+    global _CACHE_HITS, _CACHE_MISSES
+    facts = _ENEMY_TUPLE_CACHE.get(handle)
+    if facts is None:
+        _CACHE_MISSES += 1
+        return None
+    _CACHE_HITS += 1
+    return facts
 
 
 def record_chase_win(cand) -> None:
@@ -136,12 +201,19 @@ def record_chase_win(cand) -> None:
     the commitment dict stays empty and the boost never fires.
     """
     global _CHASE_COMMITMENT
+    global _CHASE_COMMITS
     try:
         if not cand or cand[0] != "chase":
             return
-        handle = int(cand[1])
+        handle = _enemy_handle(cand[1])
+        if handle < 0:
+            return
         factor = float(getattr(config, "CHASE_COMMIT_FACTOR", 2.0))
         boosted = float(cand[2]) * factor
+        if handle not in _CHASE_COMMITMENT:
+            # A NEW commitment (the target changed): that is the event the
+            # close-out counter counts.
+            _CHASE_COMMITS += 1
         _CHASE_COMMITMENT[handle] = (handle, boosted)
     except Exception:
         return
@@ -940,10 +1012,12 @@ def _hostile_threat(snap) -> dict:
         try:
             hp = float(enemy.health())
             if hp <= 0.0:
-                hp = float(enemy.max_hp())
-            max_hp = float(enemy.max_hp())
+                hp = float(enemy.max_health())
+            max_hp = float(enemy.max_health())
             bag = int(enemy.gem_count())
-            _ENEMY_TUPLE_CACHE[int(enemy)] = (ex, ey, reach, dmg, hp, max_hp, bag)
+            handle = _enemy_handle(enemy)
+            if handle >= 0:
+                _ENEMY_TUPLE_CACHE[handle] = (ex, ey, reach, dmg, hp, max_hp, bag)
         except Exception:
             pass
         dx = ex - px
@@ -1110,10 +1184,7 @@ def _fight_window(snap, enemy, dist, dmg, our_damage):
     build per turn in generate_candidates, plain-int reads here).
     """
     our_reach = _our_reach(snap)
-    try:
-        handle = int(enemy)
-    except Exception:
-        handle = -1
+    handle = _enemy_handle(enemy)
     tup = _get_enemy_tuple(handle)
     if tup is not None:
         their_reach = int(tup[2])
@@ -1253,6 +1324,7 @@ def _fight_candidates(snap, field) -> list:
     if not enemies:
         return []
     out = []
+    global _EV_PRUNES
     our_damage = _our_damage(snap)
     if our_damage <= 0.0:
         return []
@@ -1275,10 +1347,7 @@ def _fight_candidates(snap, field) -> list:
     best_other_score = _BEST_NON_FIGHT_SCORE
 
     for enemy, dist, dmg, pos in enemies:
-        try:
-            handle = int(enemy)
-        except Exception:
-            handle = -1
+        handle = _enemy_handle(enemy)
         tup = _get_enemy_tuple(handle)
         if tup is not None:
             ex = int(tup[0])
@@ -1315,6 +1384,7 @@ def _fight_candidates(snap, field) -> list:
             # fight's gross upper bound; if even that cannot beat the
             # best non-fight candidate, skip the EV arithmetic.
             if value + _our_bag(snap) <= best_other_score:
+                _EV_PRUNES += 1
                 continue
             ratio = window["incoming"] / hp if hp > 0.0 else 9.9
             win = _fight_win(ratio)
@@ -1345,6 +1415,7 @@ def _fight_candidates(snap, field) -> list:
             config.CHASE_SUCCESS_FACTOR
         )
         if upper <= best_other_score:
+            _EV_PRUNES += 1
             continue
         try:
             if pos is None:
@@ -1386,7 +1457,7 @@ def _kill_value(snap, enemy, ex, ey) -> float:
     value = 0.0
     bag = None
     try:
-        tup = _get_enemy_tuple(int(enemy))
+        tup = _get_enemy_tuple(_enemy_handle(enemy))
         if tup is not None:
             bag = int(tup[6])
     except Exception:
@@ -2424,7 +2495,7 @@ def generate_candidates(snap) -> list[Candidate]:
             visible_handles = set()
             try:
                 for e in getattr(snap, "visible_enemies", ()) or ():
-                    visible_handles.add(int(e))
+                    visible_handles.add(_enemy_handle(e))
             except Exception:
                 pass
             for handle in list(_CHASE_COMMITMENT.keys()):
@@ -2433,13 +2504,14 @@ def generate_candidates(snap) -> list[Candidate]:
                     continue
                 committed_handle, boosted_score = _CHASE_COMMITMENT[handle]
                 # Find the chase candidate for this target and boost it.
-                # Candidates carry the enemy object; int(enemy) is the engine
-                # handle, the same key the commitment is stored under.
+                # Candidates carry the enemy object; _enemy_handle(enemy) is
+                # the engine handle, the same key the commitment is stored
+                # under.
                 for c in out:
                     if c[0] != "chase":
                         continue
                     try:
-                        if int(c[1]) != committed_handle:
+                        if _enemy_handle(c[1]) != committed_handle:
                             continue
                     except Exception:
                         continue
@@ -2450,6 +2522,8 @@ def generate_candidates(snap) -> list[Candidate]:
                     if float(c[2]) < float(getattr(config, "CHASE_COMMIT_MIN", 0.5)):
                         del _CHASE_COMMITMENT[handle]
                         continue
+                    global _CHASE_BOOSTS
+                    _CHASE_BOOSTS += 1
                     _CHASE_COMMITMENT[handle] = (committed_handle, float(c[2]))
                     c[3] = c[3] + " COMMIT"
                     break

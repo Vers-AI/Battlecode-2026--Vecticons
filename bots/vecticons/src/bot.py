@@ -332,6 +332,39 @@ class Bot:
             self.ward_cd = int(config.WARD_COOLDOWN_ROUNDS)
         return placed
 
+    def fuel_evidence(self):
+        """Print the F1 close-out counters (rate limited).
+
+        The line is the campaign's stdout evidence that the three close-out
+        mechanisms actually ran:
+
+            f1: <champion> hits=.. misses=.. prunes=.. commits=.. boosts=.. r=..
+
+        scripts/run_pool.py reads the LAST such line per champion out of
+        the replay bundle's team-a.stdout and sums it into the campaign
+        totals.
+        """
+        try:
+            rnd = int(cambc.round_number())
+        except Exception:
+            return
+        if not (rnd <= 2 or rnd % 100 == 0):
+            return
+        try:
+            short = observation.champion_short_name(int(cambc.me().champion_name()))
+        except Exception:
+            short = "?"
+        try:
+            c = utility.counters()
+        except Exception:
+            return
+        print(
+            f"f1: {short} hits={c['cache_hits']} misses={c['cache_misses']} "
+            f"prunes={c['ev_prunes']} commits={c['chase_commits']} "
+            f"boosts={c['chase_boosts']} r={rnd}",
+            flush=True,
+        )
+
     def play_turn(self):
         # First-turn bookkeeping.
         if self.chosen_stat is None:
@@ -532,6 +565,16 @@ class Bot:
         # later turns. Cleared on death (the dead branch above).
         try:
             utility.record_chase_win(cand)
+        except Exception:
+            pass
+
+        # F1 CLOSEOUT: the stdout evidence of the three close-out
+        # mechanisms (the threat-view tuple cache, the score-bounded EV
+        # and the chase commitment). A regular print, so it survives
+        # --release; rate limited (every 100 rounds, plus the first two
+        # rounds so even a short match leaves a line).
+        try:
+            self.fuel_evidence()
         except Exception:
             pass
 

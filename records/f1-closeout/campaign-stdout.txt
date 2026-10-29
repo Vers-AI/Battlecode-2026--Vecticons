@@ -1,0 +1,12 @@
+== f1-closeout: 53-17 | gems 38332 | fuel 26012 | faults 0 (opp 0) | kills 458 (opp 216)
+-- maps completed: 70/70 (PASS)
+-- record  PASS (>= 46-24: 53-17)
+-- gems    PASS (>= 32,876: 38332)
+-- faults  PASS (0 ours, 0 opponent)
+-- vs dominance-v1 (55-15 / 38703 gems / fuel 22230): record 53-17, gems 38332, fuel 26012
+-- vs s24-campaign (46-24 / 32876 gems / fuel 11093): record 53-17, gems 38332, fuel 26012
+-- fuel gate: WAIVED by the owner ruling a950a22 (the reference re-bases to this run)
+-- OVERALL: PASS
+[f1-closeout] THREAT CACHE hits=412685 misses=0 | EV PRUNES=3119 | CHASE COMMITS=1637 (boosts=1886)
+[f1-closeout] GEMFIGHT REPLAY VERDICT: adgato_gemcombat5 (ONE replay pass, F1 closeout): our champions take champion damage and return almost none - team dealt 3,275 vs took 4,025; Ryth 135 taken / 0 dealt, Varg 495 / 0, Stellar 1,415 / 30 (died r=356, 219 gems lost), Vesper Vale 675 / 45; only Willow (ranged) retaliated - 3,200 dealt, 3 kills. CAUSE: the fight candidate exists ONLY for an enemy inside OUR attack range, while the flee candidate fires for every enemy in contact - so a MELEE champion (Ryth/Varg, range 1) under a RANGED attacker (reach 3) has no fight candidate and a high-value flee candidate, and runs instead of closing. Class extreme: 00gemfight (dealt 2,330 vs taken 26,135 = 0.09x, kills 3 vs opp 21). The remedy (an out-of-range counter-attack candidate) is a NEW FEATURE, outside the close-out scope -> accept the kill count and ship (owner ruling).
+[f1-closeout] wrote records/f1-closeout/aggregate.json, table.md, fuel.json, per-map-diff-vs-dad8b55.md, gatecheck.txt

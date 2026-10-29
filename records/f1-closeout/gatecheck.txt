@@ -1,0 +1,9 @@
+== f1-closeout: 53-17 | gems 38332 | fuel 26012 | faults 0 (opp 0) | kills 458 (opp 216)
+-- maps completed: 70/70 (PASS)
+-- record  PASS (>= 46-24: 53-17)
+-- gems    PASS (>= 32,876: 38332)
+-- faults  PASS (0 ours, 0 opponent)
+-- vs dominance-v1 (55-15 / 38703 gems / fuel 22230): record 53-17, gems 38332, fuel 26012
+-- vs s24-campaign (46-24 / 32876 gems / fuel 11093): record 53-17, gems 38332, fuel 26012
+-- fuel gate: WAIVED by the owner ruling a950a22 (the reference re-bases to this run)
+-- OVERALL: PASS

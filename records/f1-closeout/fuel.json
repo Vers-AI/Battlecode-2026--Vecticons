@@ -1,0 +1,569 @@
+{
+  "label": "f1-closeout",
+  "total_fuel_exhausted": 26012,
+  "dad8b55_total": 22230,
+  "s24_total": 11093,
+  "note": "Fuel is the count of fuelExhausted events (the engine's own fuel guard), not the fuel spent. The owner waived the fuel gate for the close-out run (a950a22): the reference re-bases to this run.",
+  "per_map": [
+    {
+      "map": "02treasure_box",
+      "fuel_exhausted": 3158,
+      "dad8b55_fuel": 3352,
+      "s24_fuel": 2019,
+      "delta_vs_dad8b55": -194,
+      "rounds": 2000
+    },
+    {
+      "map": "02stalactites",
+      "fuel_exhausted": 2491,
+      "dad8b55_fuel": 284,
+      "s24_fuel": 233,
+      "delta_vs_dad8b55": 2207,
+      "rounds": 2000
+    },
+    {
+      "map": "00lanes",
+      "fuel_exhausted": 1881,
+      "dad8b55_fuel": 1559,
+      "s24_fuel": 1400,
+      "delta_vs_dad8b55": 322,
+      "rounds": 2000
+    },
+    {
+      "map": "01islands",
+      "fuel_exhausted": 1683,
+      "dad8b55_fuel": 1613,
+      "s24_fuel": 1236,
+      "delta_vs_dad8b55": 70,
+      "rounds": 2000
+    },
+    {
+      "map": "00rushbait_v2",
+      "fuel_exhausted": 1409,
+      "dad8b55_fuel": 722,
+      "s24_fuel": 89,
+      "delta_vs_dad8b55": 687,
+      "rounds": 2000
+    },
+    {
+      "map": "00road_of_riches",
+      "fuel_exhausted": 1307,
+      "dad8b55_fuel": 1217,
+      "s24_fuel": 735,
+      "delta_vs_dad8b55": 90,
+      "rounds": 2000
+    },
+    {
+      "map": "00corners",
+      "fuel_exhausted": 958,
+      "dad8b55_fuel": 851,
+      "s24_fuel": 453,
+      "delta_vs_dad8b55": 107,
+      "rounds": 2000
+    },
+    {
+      "map": "02tangle",
+      "fuel_exhausted": 746,
+      "dad8b55_fuel": 425,
+      "s24_fuel": 333,
+      "delta_vs_dad8b55": 321,
+      "rounds": 2000
+    },
+    {
+      "map": "00collision",
+      "fuel_exhausted": 722,
+      "dad8b55_fuel": 602,
+      "s24_fuel": 56,
+      "delta_vs_dad8b55": 120,
+      "rounds": 2000
+    },
+    {
+      "map": "00expanse",
+      "fuel_exhausted": 682,
+      "dad8b55_fuel": 326,
+      "s24_fuel": 117,
+      "delta_vs_dad8b55": 356,
+      "rounds": 2000
+    },
+    {
+      "map": "01big_world",
+      "fuel_exhausted": 653,
+      "dad8b55_fuel": 688,
+      "s24_fuel": 286,
+      "delta_vs_dad8b55": -35,
+      "rounds": 2000
+    },
+    {
+      "map": "01yellow_brick_road",
+      "fuel_exhausted": 596,
+      "dad8b55_fuel": 1229,
+      "s24_fuel": 926,
+      "delta_vs_dad8b55": -633,
+      "rounds": 2000
+    },
+    {
+      "map": "adgato_gemcombat5",
+      "fuel_exhausted": 571,
+      "dad8b55_fuel": 894,
+      "s24_fuel": 248,
+      "delta_vs_dad8b55": -323,
+      "rounds": 762
+    },
+    {
+      "map": "02the_pack",
+      "fuel_exhausted": 533,
+      "dad8b55_fuel": 694,
+      "s24_fuel": 275,
+      "delta_vs_dad8b55": -161,
+      "rounds": 2000
+    },
+    {
+      "map": "00swirl",
+      "fuel_exhausted": 530,
+      "dad8b55_fuel": 611,
+      "s24_fuel": 153,
+      "delta_vs_dad8b55": -81,
+      "rounds": 2000
+    },
+    {
+      "map": "00interlock",
+      "fuel_exhausted": 517,
+      "dad8b55_fuel": 586,
+      "s24_fuel": 4,
+      "delta_vs_dad8b55": -69,
+      "rounds": 2000
+    },
+    {
+      "map": "00breadcrumbs",
+      "fuel_exhausted": 456,
+      "dad8b55_fuel": 558,
+      "s24_fuel": 52,
+      "delta_vs_dad8b55": -102,
+      "rounds": 1601
+    },
+    {
+      "map": "00monolith",
+      "fuel_exhausted": 455,
+      "dad8b55_fuel": 383,
+      "s24_fuel": 43,
+      "delta_vs_dad8b55": 72,
+      "rounds": 2000
+    },
+    {
+      "map": "01fracture",
+      "fuel_exhausted": 433,
+      "dad8b55_fuel": 519,
+      "s24_fuel": 241,
+      "delta_vs_dad8b55": -86,
+      "rounds": 2000
+    },
+    {
+      "map": "01boss_battle",
+      "fuel_exhausted": 430,
+      "dad8b55_fuel": 348,
+      "s24_fuel": 437,
+      "delta_vs_dad8b55": 82,
+      "rounds": 2000
+    },
+    {
+      "map": "00galaxy",
+      "fuel_exhausted": 411,
+      "dad8b55_fuel": 257,
+      "s24_fuel": 21,
+      "delta_vs_dad8b55": 154,
+      "rounds": 1892
+    },
+    {
+      "map": "00lost_world",
+      "fuel_exhausted": 359,
+      "dad8b55_fuel": 318,
+      "s24_fuel": 272,
+      "delta_vs_dad8b55": 41,
+      "rounds": 2000
+    },
+    {
+      "map": "02fields",
+      "fuel_exhausted": 342,
+      "dad8b55_fuel": 292,
+      "s24_fuel": 17,
+      "delta_vs_dad8b55": 50,
+      "rounds": 2000
+    },
+    {
+      "map": "00gemfight",
+      "fuel_exhausted": 336,
+      "dad8b55_fuel": 242,
+      "s24_fuel": 24,
+      "delta_vs_dad8b55": 94,
+      "rounds": 844
+    },
+    {
+      "map": "adgato_gemcombat4",
+      "fuel_exhausted": 284,
+      "dad8b55_fuel": 96,
+      "s24_fuel": 4,
+      "delta_vs_dad8b55": 188,
+      "rounds": 719
+    },
+    {
+      "map": "00split",
+      "fuel_exhausted": 277,
+      "dad8b55_fuel": 380,
+      "s24_fuel": 148,
+      "delta_vs_dad8b55": -103,
+      "rounds": 1781
+    },
+    {
+      "map": "01hooks",
+      "fuel_exhausted": 270,
+      "dad8b55_fuel": 107,
+      "s24_fuel": 9,
+      "delta_vs_dad8b55": 163,
+      "rounds": 2000
+    },
+    {
+      "map": "02crossing",
+      "fuel_exhausted": 269,
+      "dad8b55_fuel": 268,
+      "s24_fuel": 70,
+      "delta_vs_dad8b55": 1,
+      "rounds": 1369
+    },
+    {
+      "map": "00dunes",
+      "fuel_exhausted": 258,
+      "dad8b55_fuel": 303,
+      "s24_fuel": 33,
+      "delta_vs_dad8b55": -45,
+      "rounds": 2000
+    },
+    {
+      "map": "01the_farm",
+      "fuel_exhausted": 246,
+      "dad8b55_fuel": 228,
+      "s24_fuel": 545,
+      "delta_vs_dad8b55": 18,
+      "rounds": 2000
+    },
+    {
+      "map": "02uncharted_lands",
+      "fuel_exhausted": 243,
+      "dad8b55_fuel": 290,
+      "s24_fuel": 29,
+      "delta_vs_dad8b55": -47,
+      "rounds": 2000
+    },
+    {
+      "map": "02cuts",
+      "fuel_exhausted": 240,
+      "dad8b55_fuel": 336,
+      "s24_fuel": 138,
+      "delta_vs_dad8b55": -96,
+      "rounds": 2000
+    },
+    {
+      "map": "02harvest",
+      "fuel_exhausted": 236,
+      "dad8b55_fuel": 45,
+      "s24_fuel": 70,
+      "delta_vs_dad8b55": 191,
+      "rounds": 2000
+    },
+    {
+      "map": "01shortcut",
+      "fuel_exhausted": 230,
+      "dad8b55_fuel": 143,
+      "s24_fuel": 42,
+      "delta_vs_dad8b55": 87,
+      "rounds": 2000
+    },
+    {
+      "map": "01starfish",
+      "fuel_exhausted": 215,
+      "dad8b55_fuel": 116,
+      "s24_fuel": 42,
+      "delta_vs_dad8b55": 99,
+      "rounds": 2000
+    },
+    {
+      "map": "00gem_fields",
+      "fuel_exhausted": 187,
+      "dad8b55_fuel": 171,
+      "s24_fuel": 18,
+      "delta_vs_dad8b55": 16,
+      "rounds": 1254
+    },
+    {
+      "map": "00pilgrimage",
+      "fuel_exhausted": 167,
+      "dad8b55_fuel": 95,
+      "s24_fuel": 35,
+      "delta_vs_dad8b55": 72,
+      "rounds": 2000
+    },
+    {
+      "map": "00ambush",
+      "fuel_exhausted": 124,
+      "dad8b55_fuel": 48,
+      "s24_fuel": 24,
+      "delta_vs_dad8b55": 76,
+      "rounds": 2000
+    },
+    {
+      "map": "02famine",
+      "fuel_exhausted": 123,
+      "dad8b55_fuel": 82,
+      "s24_fuel": 6,
+      "delta_vs_dad8b55": 41,
+      "rounds": 2000
+    },
+    {
+      "map": "00quadrants",
+      "fuel_exhausted": 100,
+      "dad8b55_fuel": 159,
+      "s24_fuel": 38,
+      "delta_vs_dad8b55": -59,
+      "rounds": 1171
+    },
+    {
+      "map": "01elk_arena",
+      "fuel_exhausted": 99,
+      "dad8b55_fuel": 68,
+      "s24_fuel": 15,
+      "delta_vs_dad8b55": 31,
+      "rounds": 2000
+    },
+    {
+      "map": "01gold_rush",
+      "fuel_exhausted": 76,
+      "dad8b55_fuel": 65,
+      "s24_fuel": 4,
+      "delta_vs_dad8b55": 11,
+      "rounds": 2000
+    },
+    {
+      "map": "00reverse_spiral",
+      "fuel_exhausted": 67,
+      "dad8b55_fuel": 35,
+      "s24_fuel": 5,
+      "delta_vs_dad8b55": 32,
+      "rounds": 2000
+    },
+    {
+      "map": "adgato_gemcombat2",
+      "fuel_exhausted": 67,
+      "dad8b55_fuel": 11,
+      "s24_fuel": 0,
+      "delta_vs_dad8b55": 56,
+      "rounds": 1054
+    },
+    {
+      "map": "02geodes",
+      "fuel_exhausted": 60,
+      "dad8b55_fuel": 39,
+      "s24_fuel": 7,
+      "delta_vs_dad8b55": 21,
+      "rounds": 2000
+    },
+    {
+      "map": "00crater",
+      "fuel_exhausted": 53,
+      "dad8b55_fuel": 161,
+      "s24_fuel": 5,
+      "delta_vs_dad8b55": -108,
+      "rounds": 2000
+    },
+    {
+      "map": "00packs",
+      "fuel_exhausted": 50,
+      "dad8b55_fuel": 56,
+      "s24_fuel": 6,
+      "delta_vs_dad8b55": -6,
+      "rounds": 1989
+    },
+    {
+      "map": "00quarry",
+      "fuel_exhausted": 49,
+      "dad8b55_fuel": 41,
+      "s24_fuel": 4,
+      "delta_vs_dad8b55": 8,
+      "rounds": 1039
+    },
+    {
+      "map": "00contest",
+      "fuel_exhausted": 43,
+      "dad8b55_fuel": 19,
+      "s24_fuel": 6,
+      "delta_vs_dad8b55": 24,
+      "rounds": 2000
+    },
+    {
+      "map": "00oasis",
+      "fuel_exhausted": 42,
+      "dad8b55_fuel": 8,
+      "s24_fuel": 0,
+      "delta_vs_dad8b55": 34,
+      "rounds": 2000
+    },
+    {
+      "map": "02the_pond",
+      "fuel_exhausted": 34,
+      "dad8b55_fuel": 15,
+      "s24_fuel": 3,
+      "delta_vs_dad8b55": 19,
+      "rounds": 2000
+    },
+    {
+      "map": "00stampede",
+      "fuel_exhausted": 33,
+      "dad8b55_fuel": 33,
+      "s24_fuel": 21,
+      "delta_vs_dad8b55": 0,
+      "rounds": 2000
+    },
+    {
+      "map": "00eight",
+      "fuel_exhausted": 26,
+      "dad8b55_fuel": 36,
+      "s24_fuel": 0,
+      "delta_vs_dad8b55": -10,
+      "rounds": 2000
+    },
+    {
+      "map": "01concentrated_wealth",
+      "fuel_exhausted": 26,
+      "dad8b55_fuel": 83,
+      "s24_fuel": 14,
+      "delta_vs_dad8b55": -57,
+      "rounds": 2000
+    },
+    {
+      "map": "00vault",
+      "fuel_exhausted": 19,
+      "dad8b55_fuel": 9,
+      "s24_fuel": 5,
+      "delta_vs_dad8b55": 10,
+      "rounds": 2000
+    },
+    {
+      "map": "01broken_curve",
+      "fuel_exhausted": 19,
+      "dad8b55_fuel": 27,
+      "s24_fuel": 19,
+      "delta_vs_dad8b55": -8,
+      "rounds": 2000
+    },
+    {
+      "map": "adgato_gemcombat3",
+      "fuel_exhausted": 18,
+      "dad8b55_fuel": 6,
+      "s24_fuel": 4,
+      "delta_vs_dad8b55": 12,
+      "rounds": 1014
+    },
+    {
+      "map": "00elkring",
+      "fuel_exhausted": 15,
+      "dad8b55_fuel": 16,
+      "s24_fuel": 5,
+      "delta_vs_dad8b55": -1,
+      "rounds": 1953
+    },
+    {
+      "map": "00anvil",
+      "fuel_exhausted": 14,
+      "dad8b55_fuel": 9,
+      "s24_fuel": 3,
+      "delta_vs_dad8b55": 5,
+      "rounds": 2000
+    },
+    {
+      "map": "02arena",
+      "fuel_exhausted": 14,
+      "dad8b55_fuel": 4,
+      "s24_fuel": 3,
+      "delta_vs_dad8b55": 10,
+      "rounds": 2000
+    },
+    {
+      "map": "01corridors",
+      "fuel_exhausted": 13,
+      "dad8b55_fuel": 6,
+      "s24_fuel": 5,
+      "delta_vs_dad8b55": 7,
+      "rounds": 2000
+    },
+    {
+      "map": "02gift_wrapping",
+      "fuel_exhausted": 12,
+      "dad8b55_fuel": 12,
+      "s24_fuel": 10,
+      "delta_vs_dad8b55": 0,
+      "rounds": 2000
+    },
+    {
+      "map": "00great_wall",
+      "fuel_exhausted": 10,
+      "dad8b55_fuel": 10,
+      "s24_fuel": 10,
+      "delta_vs_dad8b55": 0,
+      "rounds": 2000
+    },
+    {
+      "map": "01starvation",
+      "fuel_exhausted": 7,
+      "dad8b55_fuel": 6,
+      "s24_fuel": 5,
+      "delta_vs_dad8b55": 1,
+      "rounds": 2000
+    },
+    {
+      "map": "00ribs",
+      "fuel_exhausted": 5,
+      "dad8b55_fuel": 5,
+      "s24_fuel": 5,
+      "delta_vs_dad8b55": 0,
+      "rounds": 2000
+    },
+    {
+      "map": "02guardians",
+      "fuel_exhausted": 5,
+      "dad8b55_fuel": 5,
+      "s24_fuel": 4,
+      "delta_vs_dad8b55": 0,
+      "rounds": 2000
+    },
+    {
+      "map": "00rows",
+      "fuel_exhausted": 4,
+      "dad8b55_fuel": 4,
+      "s24_fuel": 4,
+      "delta_vs_dad8b55": 0,
+      "rounds": 2000
+    },
+    {
+      "map": "00the_line",
+      "fuel_exhausted": 4,
+      "dad8b55_fuel": 4,
+      "s24_fuel": 0,
+      "delta_vs_dad8b55": 0,
+      "rounds": 2000
+    },
+    {
+      "map": "00fragment",
+      "fuel_exhausted": 0,
+      "dad8b55_fuel": 0,
+      "s24_fuel": 0,
+      "delta_vs_dad8b55": 0,
+      "rounds": 2000
+    },
+    {
+      "map": "adgato_gemcombat1",
+      "fuel_exhausted": 0,
+      "dad8b55_fuel": 0,
+      "s24_fuel": 0,
+      "delta_vs_dad8b55": 0,
+      "rounds": 1115
+    }
+  ]
+}
