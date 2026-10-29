@@ -1,6 +1,6 @@
 # Campaign: f1-closeout
 
-**Record: 53-17** | total gems tributed: 38332 | botFaults: 0 | 0 min
+**Record: 53-17** | total gems tributed: 38332 | botFaults: 0 | 17.0 min
 
 wards placed: 31163 (on 70 maps) | items bought: 1594 | consumables bought: 224 | emblems: 1007
 

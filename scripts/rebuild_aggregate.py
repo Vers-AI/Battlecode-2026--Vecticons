@@ -45,13 +45,20 @@ def main() -> int:
             "f1": run_pool.harvest_f1_counters("", replay),
             "stats": json.loads(stats_path.read_text()),
         })
-    missing = [p.stem.replace(".stats", "") for p in sorted(out_dir.glob("*.run.log"))
-               if not (out_dir / (p.stem.replace(".stats", "") + ".stats.json")).exists()]
+    missing = [p.name.replace(".run.log", "") for p in sorted(out_dir.glob("*.run.log"))
+               if not (out_dir / p.name.replace(".run.log", ".stats.json")).exists()]
     if missing:
         print(f"WARNING: {len(missing)} maps have no stats (failed): "
               f"{', '.join(missing)}", file=sys.stderr)
 
     agg = run_pool.aggregate(results, args.label)
+    # Keep the campaign's own elapsed time (the rebuild only re-derives the
+    # rows; the wall clock belongs to the campaign that ran the maps).
+    try:
+        old = json.loads((out_dir / "aggregate.json").read_text())
+        agg["elapsed_minutes"] = old.get("elapsed_minutes", 0)
+    except Exception:
+        pass
     (out_dir / "aggregate.json").write_text(json.dumps(agg, indent=2))
     lines = [f"# Campaign: {agg['label']}", "",
              f"**Record: {agg['wins']}-{agg['losses']}** | total gems "

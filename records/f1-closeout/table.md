@@ -1,6 +1,6 @@
 # F1 close-out campaign: f1-closeout
 
-**Record: 53-17** | total gems tributed: 38332 | fuel exhausted: 26012 | botFaults (ours): 0 | botFaults (opponent): 0 | 0 min
+**Record: 53-17** | total gems tributed: 38332 | fuel exhausted: 26012 | botFaults (ours): 0 | botFaults (opponent): 0 | 17.0 min
 
 champion kills: 458 (opponent 216) | wards: 31163 | buys: 1594 | consumables: 224 | emblems: 1007
 
