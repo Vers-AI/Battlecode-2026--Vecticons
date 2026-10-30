@@ -1,0 +1,33 @@
+Using map: /tmp/opencode/f6-lockbreak-wt/maps/02treasure_box.map26a
+vecticons vs starter-python on /tmp/opencode/f6-lockbreak-wt/maps/02treasure_box.map26a
+Team A (vecticons) wins: round limit (2000) reached with more gems
+  team bot             gems kills deaths gold earned  crashes  draft
+  A    vecticons        417    16     18        2240        0  Ryth, Stellar, Vesper Vale, Varg, Willow
+  B    starter-python   118     4     26        1492        0  Varg, Tavi, Ryth, Marcella, Vendetta
+replay bundle: /tmp/opencode/f6-lockbreak-wt/replays/vecticons-vs-starter-python-1793360185666.repl26a
+match summary: /tmp/opencode/f6-lockbreak-wt/results/f6-spot/02treasure_box.stats.json
+
+--- stderr ---
+drafting: round 0/2000
+running: round 0/2000
+running: round 100/2000
+running: round 200/2000
+running: round 300/2000
+running: round 400/2000
+running: round 500/2000
+running: round 600/2000
+running: round 700/2000
+running: round 800/2000
+running: round 900/2000
+running: round 1000/2000
+running: round 1100/2000
+running: round 1200/2000
+running: round 1300/2000
+running: round 1400/2000
+running: round 1500/2000
+running: round 1600/2000
+running: round 1700/2000
+running: round 1800/2000
+running: round 1900/2000
+running: round 2000/2000
+finished: round 2000/2000 — teamA
