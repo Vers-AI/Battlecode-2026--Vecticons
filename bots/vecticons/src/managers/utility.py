@@ -92,6 +92,7 @@ import cambc
 import config
 from managers import abilities, execution, fielding, intelligence
 from managers import observation
+from managers import transit
 
 
 # F1 CLOSEOUT (2026-10-28): Threat-view tuple cache
@@ -136,6 +137,12 @@ _CACHE_MISSES: int = 0
 _EV_PRUNES: int = 0
 _CHASE_COMMITS: int = 0
 _CHASE_BOOSTS: int = 0
+
+
+# F3b: the regroup state lives on the bot instance, keyed by the
+# champion id (bot.regroup_streak) - the bot instance and the module
+# globals are shared by the whole team, so a module-level counter would
+# count the turns of ALL our champions at once.
 
 
 def counters() -> dict:
@@ -2461,7 +2468,7 @@ def _farm_candidates(snap, field, clear_map=None) -> list:
 # ---------------------------------------------------------------------------
 
 
-def _apply_path_exposure(cands, snap, field) -> None:
+def _apply_path_exposure(cands, snap, field) -> dict:
     """Fold the path exposure into the top candidates' P(survive).
 
     The path comes from the CACHED gradient walk (managers.fielding): the
@@ -2477,15 +2484,27 @@ def _apply_path_exposure(cands, snap, field) -> None:
 
     The bank candidate is always part of the read set (the carried-gem risk
     term is a S2.3 deliverable), plus the best candidate overall.
+
+    F3b: the same walk also prices the TRANSIT - the corridor between
+    here and the goal - against the DYNAMIC danger zones (the awake camps
+    and the death corridors). The destination exposure covers the tiles
+    next to the goal; the transit term covers the WHOLE walk, so the
+    route AROUND an aggro'd zone wins the argmax instead of the route
+    through it. The transit term prices the ROUTING kinds only (farm,
+    capture): the walk home has no alternative route, so pricing it
+    could only stop the bot from banking (measured - see the note
+    below). The return value maps the candidate index to its
+    (total, corridor) transit damage - the corridor part is what the
+    regroup decision reads (a danger we walk INTO is a corridor; the
+    danger at the destination is the destination's own business).
     """
+    transit_damage: dict = {}
     if not cands or field is None:
-        return
+        return transit_damage
     threat_list = fielding.threats(snap)
-    if not threat_list:
-        return
     bot = getattr(snap, "bot", None)
     if bot is None:
-        return
+        return transit_damage
     # S2.3 FUEL: the exposure probe costs a gradient walk per probed goal,
     # and the walk is CACHED on the bot (managers.fielding), so a repeated
     # goal is nearly free. A fuel guard here was measured and REJECTED:
@@ -2520,16 +2539,211 @@ def _apply_path_exposure(cands, snap, field) -> None:
             bot, snap, "boss" if kind == "boss" else "scoring", goal
         )
         damage = fielding.path_exposure(path, threat_list)
-        if damage <= 0.0:
-            continue
-        survive = _survival(damage, float(snap.max_hp))
-        cand[2] = float(cand[2]) * survive
-        cand[3] = f"{cand[3]} exp={int(damage)}"
+        if damage > 0.0:
+            survive = _survival(damage, float(snap.max_hp))
+            cand[2] = float(cand[2]) * survive
+            cand[3] = f"{cand[3]} exp={int(damage)}"
+    # F3b: the TRANSIT term (the walk, priced against the MEMORY danger
+    # zones - the camps we woke and lost sight of, and the corridor
+    # where we died). It runs on the same probed set, and it prices the
+    # WHOLE walk: the danger that matters for a corridor is the danger
+    # at OUR end of it, which the near-goal exposure prefix does not
+    # see at all.
+    #
+    # The two sets are DISJOINT: the awake camps the vision can still
+    # see are priced by the exposure term above, and the transit term
+    # prices only the ones the vision CANNOT see. So no damage is
+    # counted twice.
+    #
+    # ONLY THE ROUTING KINDS. The transit term exists to price WHICH
+    # CAMP we walk to - it is the price of a ROUTE, and only a route has
+    # an alternative. The walk HOME (the bank) has no alternative: there
+    # is exactly one way to the altar, so pricing it cannot reroute
+    # anything - it can only make the bot carry its gems forever.
+    #
+    # That was measured, not assumed (the 00gemfight replay of the F3b
+    # ten-map A/B): the altar of 00gemfight sits next to a camp, the
+    # walk home crossed that camp's zone, the bank candidate lost half
+    # its score every turn (2.6 against 4.8), the farming candidates
+    # (4.5-5.5) won the argmax instead, and the team collected 300
+    # gems it never banked: 124 submitted against the F3a baseline's
+    # 1,026. The bank keeps its F3a price (the carried-gem risk term).
+    try:
+        zone_list = transit.zones(snap)
+    except Exception:
+        zone_list = []
+    if zone_list:
+        version = transit.zone_version(snap)
+        # The FUEL PROBE: one `fuel_remaining()` read before the pricing
+        # and one after, so the campaign can report what the transit
+        # term actually costs (the engine charges the bot WASM fuel per
+        # turn, and a turn that runs out is a "fuelExhausted" event -
+        # the f1-retest gate counts those).
+        try:
+            _f0 = int(cambc.fuel_remaining())
+        except Exception:
+            _f0 = None
+        for idx in selected:
+            cand = cands[idx]
+            kind = cand[0]
+            if kind not in ("farm", "capture"):
+                continue
+            goal = cand[4] if len(cand) > 4 else None
+            if goal is None:
+                continue
+            total, corridor = fielding.transit_damage(
+                bot, snap, "scoring", goal, zone_list, version,
+            )
+            if total <= 0.0:
+                continue
+            weight = float(config.TRANSIT_DAMAGE_WEIGHT)
+            survive = _survival(total * weight, float(snap.max_hp))
+            floor = float(config.TRANSIT_SURVIVAL_FLOOR)
+            if survive < floor:
+                survive = floor
+            cand[2] = float(cand[2]) * survive
+            cand[3] = f"{cand[3]} transit={int(total)}"
+            transit_damage[idx] = (float(total), float(corridor))
+            transit.count_priced()
+        if _f0 is not None:
+            try:
+                transit._FUEL["price"] += _f0 - int(cambc.fuel_remaining())
+            except Exception:
+                pass
+    return transit_damage
 
 
 # ---------------------------------------------------------------------------
 # Public API.
 # ---------------------------------------------------------------------------
+
+
+def _regroup_candidate(cands, snap, transit_damage) -> None:
+    """The REGROUP hold (F3b): wait for the company.
+
+    The respawn -> walk-back-alone -> die loop is a GROUP problem: a
+    champion that died in a corridor walks back through the SAME corridor
+    alone and dies again (the evidence match: 18 corridor deaths, the same
+    champion, the same corridor, every ~70 rounds). The transit term
+    already reroutes the champion around a priced corridor; this is the
+    case where EVERY route we would take crosses one.
+
+    The hold is a scored candidate, so the argmax picks it: it outscores
+    the action it defers (REGROUP_HOLD_BONUS) and it expires
+    (REGROUP_MAX_ROUNDS), so a permanent danger cannot freeze the bot.
+
+    Conditions (all of them):
+      * the action we would take is a TRANSIT action (farm / capture) -
+        we never defer a fight, a flee, a bank or a recall;
+      * its route crosses a CORRIDOR worth more than
+        REGROUP_DAMAGE_FRACTION of our health pool (the danger at the
+        destination and the danger we stand in are not corridors);
+      * no hostile champion is in contact (we do not stand still with an
+        enemy on us);
+      * no ally is within REGROUP_ALLY_TILES - with company we cross as
+        a group instead of waiting;
+      * we carry NO gems - a champion with a bag has a strictly better
+        action than waiting (walk home and bank it), so the hold is
+        reserved for the empty-handed champion of the loop.
+
+    The hold streak is PER CHAMPION. The bot instance (and the module
+    globals) are shared by the whole team, so a module-level counter
+    counted the turns of ALL our champions: one champion's hold
+    shortened the expiry for the others. The streak lives on the bot
+    instance, keyed by the champion id.
+    """
+    bot = getattr(snap, "bot", None)
+    if bot is None:
+        return
+    try:
+        champ = int(snap.me.champion_name())
+    except Exception:
+        champ = -1
+    state = getattr(bot, "regroup_streak", None)
+    if not isinstance(state, dict):
+        state = {}
+        try:
+            bot.regroup_streak = state
+        except Exception:
+            pass
+    streak = int(state.get(champ, 0))
+
+    def _clear():
+        state[champ] = 0
+
+    if not cands or not transit_damage:
+        _clear()
+        return
+    try:
+        if int(getattr(snap, "gems", 0)) > 0:
+            # A bag in hand beats a wait: bank it.
+            _clear()
+            return
+    except Exception:
+        pass
+    # The action the bot would otherwise take: the hold may only
+    # preempt THAT action (a hold that beat a better action would waste
+    # the turn on a fear instead of on gems). The shop candidates are
+    # skipped: bot.py removes them from the argmax set before it picks
+    # (a purchase is a free parallel action, not a move).
+    best_idx = -1
+    for index, cand in enumerate(cands):
+        if cand[0] in ("shop", "lock"):
+            continue
+        try:
+            score = float(cand[2])
+        except Exception:
+            continue
+        if best_idx < 0 or score > float(cands[best_idx][2]):
+            best_idx = index
+    if best_idx < 0:
+        _clear()
+        return
+    if cands[best_idx][0] not in ("farm", "capture"):
+        # A bank, a recall or a fight is never deferred.
+        _clear()
+        return
+    facts = transit_damage.get(best_idx) or (0.0, 0.0)
+    try:
+        damage = float(facts[1])
+    except Exception:
+        damage = 0.0
+    threshold = float(config.REGROUP_DAMAGE_FRACTION) * float(snap.max_hp)
+    if damage < threshold:
+        _clear()
+        return
+    if streak >= int(config.REGROUP_MAX_ROUNDS):
+        # The hold expires: the bot goes anyway. No deadlock. The
+        # negative streak is the cooldown after an expiry - the hold is
+        # not a metronome.
+        state[champ] = -int(config.REGROUP_MAX_ROUNDS)
+        return
+    if streak < 0:
+        # The cooldown after an expiry: the bot may not hold again yet.
+        state[champ] = streak + 1
+        return
+    try:
+        view = _hostile_threat(snap)
+        if view.get("contact"):
+            # We do not stand still with an enemy on us.
+            _clear()
+            return
+    except Exception:
+        pass
+    try:
+        if transit.ally_close(snap, int(config.REGROUP_ALLY_TILES)):
+            # We have company: crossing as a group beats waiting.
+            _clear()
+            return
+    except Exception:
+        pass
+    score = float(cands[best_idx][2]) * float(config.REGROUP_HOLD_BONUS)
+    cands.append([
+        "regroup", None, score,
+        f"regroup wait d={int(damage)}", None,
+    ])
+    state[champ] = streak + 1
+    transit.count_hold()
 
 
 def generate_candidates(snap) -> list[Candidate]:
@@ -2670,9 +2884,17 @@ def generate_candidates(snap) -> list[Candidate]:
 
     # Threat term: fold the path exposure into the top candidates.
     try:
-        _apply_path_exposure(out, snap, field)
+        transit_damage = _apply_path_exposure(out, snap, field)
     except Exception as error:
         _report("path exposure", error)
+        transit_damage = {}
+
+    # F3b: the regroup hold - an action that crosses a lethal corridor
+    # while we are alone is deferred (the bot waits for the company).
+    try:
+        _regroup_candidate(out, snap, transit_damage)
+    except Exception as error:
+        _report("regroup", error)
 
     # A candidate worth nothing never wins the argmax (unreachable targets,
     # hopeless fights): drop the non-positive scores.

@@ -166,6 +166,14 @@ class Snapshot:
     visible_group_keys: frozenset = frozenset()
     # Awake (already hit) monsters as (tile, strength) pairs.
     awake_monsters: tuple = ()
+    # F3b: the visible camp handles and the AWAKE ones (the dynamic
+    # danger layer - managers.transit). The handle is the engine's stable
+    # camp identity; a camp we can see that is not awake is dead or
+    # asleep again, so its danger zone is dropped.
+    visible_camp_handles: frozenset = frozenset()
+    # F3b: the awake camps as (handle, x, y, strength, reach) - the priced
+    # danger zones, with plain int coordinates.
+    awake_zones: tuple = ()
     # Camp handle -> the camp's engine state (CampState). One read per
     # visible camp per turn; it also derives the group state.
     camp_states: dict = field(default_factory=dict)
@@ -1336,11 +1344,20 @@ def _read_visible_camps(snap) -> None:
     # 0, so the score stayed maximal, and the walk refused to move because
     # we already stood on the goal tile).
     live_tiles: dict = {}
+    # F3b: the handles of the visible camps, and the handles of the AWAKE
+    # ones (the dynamic danger layer - managers.transit). The handle is
+    # the engine's stable camp identity, and both sets are built from the
+    # loop below, so they cost no extra engine read.
+    visible_handles: set = set()
+    # F3b: the awake camps as (handle, x, y, strength, reach) tuples - the
+    # priced danger zones, with plain int coordinates (no Vec2 read).
+    awake_zones: list = []
     for camp in camps:
         try:
             handle = int(camp.__index__())
         except Exception:
             continue
+        visible_handles.add(handle)
         info = camp_info.get(handle)
         if info is None:
             continue
@@ -1405,6 +1422,16 @@ def _read_visible_camps(snap) -> None:
             # engine's CampStats.base_attack_range), not a flat 3.
             awake.append((camp.spawn_position(), strength, reach))
         except Exception:
+            pass
+        # F3b: the priced danger zone of the awake camp. The coordinates
+        # come from the first-turn camp table (no engine read): the
+        # monsters do not chase (GameRules :207), so the zone around the
+        # spawn tile is where the danger is.
+        try:
+            sx = int(info[5])
+            sy = int(info[6])
+            awake_zones.append((handle, sx, sy, float(strength), int(reach)))
+        except Exception:
             continue
     snap.visible_group_keys = frozenset(keys)
     snap.group_visible_camps = counts
@@ -1413,6 +1440,8 @@ def _read_visible_camps(snap) -> None:
     snap.camp_states = camp_states
     snap.group_dead_camps = dead
     snap.group_live_tiles = live_tiles
+    snap.visible_camp_handles = frozenset(visible_handles)
+    snap.awake_zones = tuple(awake_zones)
     _derive_group_states(snap, counts, dead)
 
 

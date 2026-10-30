@@ -61,6 +61,7 @@ from managers import abilities
 from managers import execution
 from managers import intelligence
 from managers import observation
+from managers import transit
 from managers import scouting
 from managers import utility
 
@@ -101,10 +102,17 @@ def _camp_caster(snap):
     (the camp-clear time estimate prices the burst, so the two agree).
     The cast is a separate turn resource from the basic attack, so both
     land in the same turn.
+
+    F3b: striking a monster WAKES it (GameRules :190), so the camp we
+    hit becomes a priced danger zone - the dynamic awake-camp layer.
     """
     def _cast(camp):
         try:
             abilities.camp_cast(snap, camp)
+        except Exception:
+            pass
+        try:
+            transit.note_awake(snap, camp)
         except Exception:
             pass
     return _cast
@@ -163,6 +171,12 @@ class Bot:
         # B1: our health from the previous turn - the "we were hit" signal
         # that turns a nearby enemy into a confirmed threat.
         self.last_hp = None
+        # F3b: the death-corridor facts. `last_pos` is where we stood on
+        # our last ALIVE turn (the place that killed us); `last_alive` is
+        # the alive flag of the previous turn, so the alive -> dead
+        # transition is detected exactly once per death.
+        self.last_pos = None
+        self.last_alive = False
         # S2.4: rate limit for the shopping evidence prints (a regular
         # print, so it survives --release).
         self.shop_logs = 0
@@ -427,6 +441,37 @@ class Bot:
         except Exception:
             pass
 
+    def transit_evidence(self):
+        """Print the F3b transit/regroup counters (rate limited).
+
+            f3b: <champion> zones=.. awake=.. deaths=.. holds=.. priced=.. r=..
+
+        scripts/run_pool.py reads the LAST such line per champion out of
+        the replay bundle's team-a.stdout and sums it into the campaign
+        totals - the "the transit mechanism ran" evidence.
+        """
+        try:
+            rnd = int(cambc.round_number())
+        except Exception:
+            return
+        if not (rnd <= 2 or rnd % 100 == 0):
+            return
+        try:
+            short = observation.champion_short_name(int(cambc.me().champion_name()))
+        except Exception:
+            short = "?"
+        try:
+            c = transit.counters()
+        except Exception:
+            return
+        print(
+            f"f3b: {short} zones={c['zones']} awake={c['awake']} "
+            f"deaths={c['deaths']} holds={c['holds']} "
+            f"priced={c['priced']} r={rnd} "
+            f"fu={c['fuel_update']} fp={c['fuel_price']}",
+            flush=True,
+        )
+
     def play_turn(self):
         """The turn entry point (F3a: a fuel probe around the body).
 
@@ -482,6 +527,44 @@ class Bot:
         snap = observation.snapshot(self, s23_cache=True)
         me = snap.me
         position = snap.position
+
+        # F3b: the transit layer. Two facts are refreshed here (no engine
+        # read: the observation layer already read the visible camps):
+        #   * the DYNAMIC awake-camp memory - a camp we saw awake, or one
+        #     we struck, stays a priced danger zone (a sleeping camp and an
+        #     engaged one are different terrain);
+        #   * the DEATH CORRIDOR - the place that killed us stays a priced
+        #     hazard, so the route around it wins the argmax and the
+        #     respawn -> walk-back-alone -> die loop loses its road.
+        _f0 = None
+        try:
+            _f0 = int(cambc.fuel_remaining())
+        except Exception:
+            _f0 = None
+        try:
+            transit.update(snap)
+        except Exception:
+            pass
+        if _f0 is not None:
+            try:
+                transit._FUEL["update"] += _f0 - int(cambc.fuel_remaining())
+            except Exception:
+                pass
+        try:
+            if snap.is_alive:
+                self.last_pos = (int(snap.origin_xy[0]), int(snap.origin_xy[1]))
+            elif self.last_alive and self.last_pos is not None:
+                # The hit that killed us (the health we had at the end of
+                # our last alive turn) is the honest price of the tile.
+                try:
+                    hurt = float(self.last_hp) if self.last_hp else 0.0
+                except Exception:
+                    hurt = 0.0
+                transit.note_death(snap, self.last_pos[0], self.last_pos[1],
+                                   hurt)
+            self.last_alive = bool(snap.is_alive)
+        except Exception:
+            pass
 
         # Intel: persist last-known enemy locations (facts only; runs even
         # while channeling — spotting an enemy mid-tribute is exactly when
@@ -677,6 +760,12 @@ class Bot:
         except Exception:
             pass
 
+        # F3b: the transit/regroup evidence line.
+        try:
+            self.transit_evidence()
+        except Exception:
+            pass
+
         # Diagnostic - log every cand.kind for first few rounds.
         try:
             if cambc.round_number() <= 20:
@@ -719,6 +808,18 @@ class Bot:
             # camp group's spawn tiles, the altar's approach ring, our own
             # spawn). It is the tile the cached gradient path ends at.
             goal = cand[4] if len(cand) > 4 else None
+
+            # F3b: the REGROUP hold - the argmax picked "wait for the
+            # company" over an action that crosses a lethal corridor while
+            # we are alone (the respawn -> walk-back-alone -> die loop).
+            # The hold does not move; the free parallel actions (the shop,
+            # the ward, the lock) already ran above.
+            if kind == "regroup":
+                try:
+                    abilities.defensive_cast(snap)
+                except Exception:
+                    pass
+                return
 
             # Capture: stand on the cleared spawn tile for 5 rounds.
             if kind == "capture":

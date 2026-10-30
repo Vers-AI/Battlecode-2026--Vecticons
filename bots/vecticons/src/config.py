@@ -534,6 +534,71 @@ ABILITY_DEFENSE_THREAT_FRAC: float = 1.0
 # contact in one turn where a walk only buys one tile.
 ABILITY_DASH_ESCAPE_BONUS: float = 0.3
 
+# ---------------------------------------------------------------------------
+# F3b - transit & regroup policy (kit-TYPE policy: no champion names, no
+# map names).
+# ---------------------------------------------------------------------------
+# A camp is not terrain: a SLEEPING camp is harmless and an ENGAGED one
+# zones the ground around it (GameRules :190 "The monsters are friendly
+# until they are hit!"; :208 "Damage wakes the group; two rounds
+# without an in-range champion let it sleep"). The threat model read the
+# awake camps out of the CURRENT vision only, so the ground behind a camp
+# we had woken priced as empty the moment we walked out of sight of it -
+# and the respawn -> walk-back-alone -> die loop had free rein.
+#
+# How often the danger memory is swept (the TTL expiry and the "the camp
+# we can see is not awake any more" check). The sweep is a Python loop
+# over the memory; the facts themselves are refreshed every turn by the
+# visible-camp read, so the sweep can run rarely.
+TRANSIT_UPDATE_EVERY: int = 8
+# How long an awake camp stays a priced danger zone after we last saw it
+# awake (rounds). The monsters do not chase (GameRules :207), so the zone
+# around the spawn tile is where the danger is; the fact itself is short
+# lived - a monster with no champion in range for two rounds sleeps
+# again (GameRules :208) - so the TTL is short. It must outlast the two
+# rounds the monster needs to fall asleep, plus the round we lose sight
+# of it.
+TRANSIT_AWAKE_TTL: int = 6
+# How many awake camps the memory holds at once (the priced zone count).
+TRANSIT_AWAKE_MAX: int = 4
+# The death corridor: the place where WE died stays a priced hazard for
+# this many rounds, so the route around it wins the argmax instead of the
+# route that killed us. The TTL must outlast the DEATH WINDOW (a dead
+# champion respawns after 60 rounds, GameRules :375) - the loop the
+# corridor fact exists to break is "die, respawn, walk back, die".
+TRANSIT_DEATH_TTL: int = 80
+# How many death corridors the memory holds.
+TRANSIT_DEATH_MAX: int = 2
+# The death corridor's radius (tiles) and the damage one of its tiles is
+# worth (the expected damage of walking back through the place that
+# killed us - the monster that killed us hits for its own strength, so
+# this is the "it was bad there" proxy).
+TRANSIT_DEATH_RADIUS: int = 2
+TRANSIT_DEATH_DAMAGE: float = 150.0
+# The weight of the transit damage in the candidate score.
+TRANSIT_DAMAGE_WEIGHT: float = 0.25
+# The floor of the transit survival factor: the transit term is a
+# DISCOUNT (the route around a danger wins), not a veto (a veto would
+# freeze the bot when the only way forward runs through a danger). The
+# floor is BELOW the survival model's own floor (DEATH_RISK_BASE), so
+# the transit term never prices a candidate away entirely.
+TRANSIT_SURVIVAL_FLOOR: float = 0.05
+# The regroup: an ally within this many tiles means we are not alone, so
+# we cross the corridor as a group instead of waiting for company.
+REGROUP_ALLY_TILES: int = 6
+# The regroup hold's bonus over the action it defers. The hold is priced
+# ABOVE that action (it only wins when the action it defers crosses a
+# lethal corridor while we are alone), so this is a small number.
+REGROUP_HOLD_BONUS: float = 1.05
+# The hold expires after this many consecutive rounds: the bot goes
+# anyway. Without the expiry a permanent danger would freeze a champion.
+# After the expiry the bot waits this many rounds before it may hold
+# again (the hold is not a metronome).
+REGROUP_MAX_ROUNDS: int = 4
+# The corridor counts as lethal at this fraction of our health pool: the
+# expected damage in transit is what the hold defers.
+REGROUP_DAMAGE_FRACTION: float = 0.35
+
 MONOLITH_HP: int = 20_000         # GameRules camp table (Monolith total HP).
 
 # Per-champion stat priority used when shopping on spawn tiles.

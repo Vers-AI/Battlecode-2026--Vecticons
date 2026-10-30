@@ -73,6 +73,20 @@ F3A_LINE = re.compile(
     r"dash=(?P<dash>\d+)\s+reset=(?P<reset>\d+)\s+r=(?P<r>\d+)"
 )
 
+# F3b evidence: the transit/regroup counters ("f3b: <CHAMP> zones=..
+# awake=.. deaths=.. holds=.. priced=.. r=.."). The LAST line per
+# champion carries its final totals. The optional trailing groups are
+# the F3b FUEL PROBE (fu = the fuel the danger-memory refresh spent,
+# fp = the fuel the transit pricing spent) - the compute-cost evidence
+# against the campaign's fuelExhausted gate.
+F3B_LINE = re.compile(
+    r"f3b:\s+(?P<champ>[A-Z][A-Z_]*)\s+"
+    r"zones=(?P<zones>\d+)\s+awake=(?P<awake>\d+)\s+"
+    r"deaths=(?P<deaths>\d+)\s+holds=(?P<holds>\d+)\s+"
+    r"priced=(?P<priced>\d+)\s+r=(?P<r>\d+)"
+    r"(?:\s+fu=(?P<fu>\d+))?(?:\s+fp=(?P<fp>\d+))?"
+)
+
 
 def harvest_f1_counters(stdout: str, replay: Path | None) -> dict:
     """The last f1: counter line per champion, summed.
@@ -161,6 +175,49 @@ def harvest_f3a_counters(stdout: str, replay: Path | None) -> dict:
     return total
 
 
+def harvest_f3b_counters(stdout: str, replay: Path | None) -> dict:
+    """The last f3b: transit/regroup counter line per champion, summed.
+
+    Same shape as the f3a harvest. The "zones" counter is a GAUGE (the
+    live danger zones at the last read), so it is summed separately from
+    the cumulative counters ("awake" camps recorded, "deaths" corridors
+    recorded, "holds" regroup waits, "priced" candidates discounted by
+    the transit term).
+    """
+    per_champ: dict = {}
+    if replay is not None and replay.exists():
+        try:
+            with zipfile.ZipFile(replay) as zf:
+                for name in zf.namelist():
+                    if not name.endswith("team-a.stdout"):
+                        continue
+                    text = zf.read(name).decode("utf-8", "replace")
+                    for line in text.splitlines():
+                        line = line.replace("\x00", "")
+                        m = F3B_LINE.search(line)
+                        if not m:
+                            continue
+                        per_champ[m.group("champ")] = {
+                            "zones": int(m.group("zones")),
+                            "awake": int(m.group("awake")),
+                            "deaths": int(m.group("deaths")),
+                            "holds": int(m.group("holds")),
+                            "priced": int(m.group("priced")),
+                            "fuel_update": int(m.group("fu") or 0),
+                            "fuel_price": int(m.group("fp") or 0),
+                            "round": int(m.group("r")),
+                        }
+        except Exception:
+            return {}
+    total = {"zones": 0, "awake": 0, "deaths": 0, "holds": 0, "priced": 0,
+             "fuel_update": 0, "fuel_price": 0, "champions": len(per_champ)}
+    for facts in per_champ.values():
+        for key in ("zones", "awake", "deaths", "holds", "priced",
+                    "fuel_update", "fuel_price"):
+            total[key] += facts[key]
+    return total
+
+
 def run_match(cambc, project, bot_a, bot_b, map_name, out_dir, release,
               rounds, timeout):
     """One match. Returns a result dict; never raises."""
@@ -192,6 +249,7 @@ def run_match(cambc, project, bot_a, bot_b, map_name, out_dir, release,
                 "seconds": round(time.time() - t0, 1),
                 "f1": harvest_f1_counters(proc.stdout, replay),
                 "f3a": harvest_f3a_counters(proc.stdout, replay),
+                "f3b": harvest_f3b_counters(proc.stdout, replay),
                 "stats": json.loads(stats_path.read_text())}
     except subprocess.TimeoutExpired:
         log_path.write_text(f"TIMEOUT after {timeout}s")
@@ -260,6 +318,9 @@ def aggregate(results, label, our_side="teamA"):
                 "chase_commits": 0, "chase_boosts": 0}
     f3a_total = {"casts": 0, "damage": 0, "aoe": 0, "cc": 0, "heal": 0,
                  "shield": 0, "dash": 0, "reset": 0, "champions": 0}
+    f3b_total = {"zones": 0, "awake": 0, "deaths": 0, "holds": 0,
+                 "priced": 0, "fuel_update": 0, "fuel_price": 0,
+                 "champions": 0}
     for r in sorted(results, key=lambda r: r["map"]):
         if r["status"] != "ok" or not r.get("stats"):
             rows.append({"map": r["map"], "status": r["status"]})
@@ -275,6 +336,9 @@ def aggregate(results, label, our_side="teamA"):
         f3a = r.get("f3a") or {}
         for key in f3a_total:
             f3a_total[key] += int(f3a.get(key, 0) or 0)
+        f3b = r.get("f3b") or {}
+        for key in f3b_total:
+            f3b_total[key] += int(f3b.get(key, 0) or 0)
         rows.append({"map": r["map"], "status": "ok", "win": a["win"],
                      "gems": a["gems"], "opp_gems": b["gems"],
                      "camps": a["camps_cleared"], "deaths": a["deaths"],
@@ -287,6 +351,7 @@ def aggregate(results, label, our_side="teamA"):
                      "opp_bot_faults": b["bot_faults"],
                      "f1": f1,
                      "f3a": f3a,
+                     "f3b": f3b,
                      "seconds": r["seconds"]})
     n_ok = sum(1 for r in rows if r.get("status") == "ok")
     return {"label": label, "matches": len(rows), "wins": wins,
@@ -312,6 +377,7 @@ def aggregate(results, label, our_side="teamA"):
                                    if r.get("status") == "ok"),
             "f1_counters": f1_total,
             "f3a_counters": f3a_total,
+            "f3b_counters": f3b_total,
             "rows": rows}
 
 
@@ -419,6 +485,17 @@ def main():
           f"shield={f3a.get('shield', 0)} dash={f3a.get('dash', 0)} "
           f"reset={f3a.get('reset', 0)} champions={f3a.get('champions', 0)})",
           flush=True)
+    # F3b evidence: the transit/regroup counters, on stdout.
+    f3b = agg.get("f3b_counters", {})
+    print(f"[{args.label}] TRANSIT zones={f3b.get('zones', 0)} "
+          f"awake={f3b.get('awake', 0)} deaths={f3b.get('deaths', 0)} "
+          f"holds={f3b.get('holds', 0)} priced={f3b.get('priced', 0)} "
+          f"champions={f3b.get('champions', 0)}", flush=True)
+    # F3b fuel probe: what the transit layer actually SPENT (the engine
+    # charges the bot WASM fuel per turn; a turn that runs out is a
+    # fuelExhausted event, which is the campaign's compute-cost gate).
+    print(f"[{args.label}] TRANSIT FUEL update={f3b.get('fuel_update', 0)} "
+          f"price={f3b.get('fuel_price', 0)}", flush=True)
     if args.verdict_file:
         vp = Path(args.verdict_file)
         if vp.exists():

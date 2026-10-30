@@ -56,6 +56,7 @@ import cambc
 from cambc import game_map
 
 import config
+from managers import transit
 
 # The engine's "unreached" sentinel (verified by probe 2026-10-23: a sealed
 # target reads back as 65535).
@@ -574,6 +575,9 @@ def path_entry(bot, snap, kind: str, goal):
         "reached": reached,
         "pending": None,
         "used": _path_tick(bot),
+        # The goal's coordinates (the key already read them) - the
+        # transit pricing needs them and a Vec2 read is not free.
+        "goal_xy": (int(key[1]), int(key[2])),
     }
     if len(cache) >= PATH_CACHE_ENTRIES:
         _evict_oldest(cache)
@@ -749,6 +753,91 @@ def exposure_tiles(bot, snap, kind: str, goal, limit: int | None = None):
     return entry.get("exposure")
 
 
+def transit_tiles(bot, snap, kind: str, goal):
+    """The FULL walked path, as a bitboard (F3b).
+
+    The transit term prices the whole walk - the corridor the champion
+    crosses to get there - against the DYNAMIC danger zones (the awake
+    camps and the death corridors). It is not a near-goal prefix: the
+    danger that matters for a corridor is the danger at OUR end of the
+    walk, which is exactly the part a near-goal prefix does not price.
+
+    The bitboard is built ONCE per path entry (the path cache keeps it),
+    so a repeated goal costs nothing and a new goal costs one walk's
+    worth of bitboard writes.
+    """
+    entry = path_entry(bot, snap, kind, goal)
+    if entry is None or not entry.get("reached"):
+        return None
+    tiles = entry.get("transit")
+    if tiles is None:
+        tiles = _build_transit(entry)
+        entry["transit"] = tiles
+    return tiles
+
+
+def _build_transit(entry) -> Any:
+    """The full path as a bitboard.
+
+    The walk is goal-first (tiles[0] is the goal). The exposure
+    bitboard holds the first PATH_EXPOSURE_STEPS tiles next to the goal
+    - on a typical map the walk is SHORTER than that, so the exposure
+    bitboard IS the whole path and is reused as it is (FUEL: a second
+    bitboard would be a walk's worth of writes for nothing).
+    """
+    tiles = entry.get("tiles") or ()
+    exposure = entry.get("exposure")
+    try:
+        limit = int(config.PATH_EXPOSURE_STEPS) + 1
+    except Exception:
+        limit = 25
+    if len(tiles) <= limit and exposure is not None:
+        return exposure
+    board = cambc.Bitboard()
+    for tile in tiles:
+        try:
+            board.set(tile)
+        except Exception:
+            continue
+    return board
+
+
+def transit_damage(bot, snap, kind: str, goal, zone_list, version: int):
+    """The (total, corridor) transit damage of the walk toward `goal`.
+
+    `goal` may be a single tile or a tuple of goal tiles (the farm and
+    bank candidates offer a set); the first tile is the one the walk
+    ends at.
+
+    CACHED on the path entry: the walk and the zone list both change
+    rarely, so the bitboard intersection is paid once per change instead
+    of once per turn (FUEL: the transit term must not tax every turn of
+    every match).
+    """
+    if isinstance(goal, (tuple, list)):
+        goal = goal[0] if goal else None
+    if goal is None:
+        return (0.0, 0.0)
+    entry = path_entry(bot, snap, kind, goal)
+    if entry is None or not entry.get("reached"):
+        return (0.0, 0.0)
+    cached = entry.get("transit_damage")
+    if cached is not None and int(cached[0]) == int(version):
+        return (float(cached[1]), float(cached[2]))
+    path = entry.get("transit")
+    if path is None:
+        path = _build_transit(entry)
+        entry["transit"] = path
+    px, py = snap.origin_xy
+    gx, gy = entry.get("goal_xy") or (-999, -999)
+    total, corridor = transit.path_damage(path, zone_list, px, py, gx, gy)
+    try:
+        entry["transit_damage"] = (int(version), float(total), float(corridor))
+    except Exception:
+        pass
+    return (total, corridor)
+
+
 # ---------------------------------------------------------------------------
 # Boss-engagement field (terrain-only walls).
 # ---------------------------------------------------------------------------
@@ -915,6 +1004,10 @@ def awake_monsters(snap) -> list:
     S2.3.4: the range is the monster's OWN attack range (the engine's
     CampStats.base_attack_range: 3 for a wolf, 4 for an elk, 5 for the
     monolith), not a flat 3.
+
+    F3b: this list is a FACT, not a price any more. The awake monsters are
+    priced by the transit term (managers.transit), which discounts them
+    over the whole walk and keeps the ones the vision cannot see.
     """
     return list(getattr(snap, "awake_monsters", ()) or ())
 
@@ -929,6 +1022,15 @@ def threats(snap) -> list:
 
     This is the input of the carried-gem risk term (bank score x
     P(survive the trip)) and of the farm/boss survival terms.
+
+    F3b: the awake monsters STAY in this list - the destination exposure
+    prices them on the tiles next to the goal, exactly as before. The
+    transit term (managers.transit) prices the CORRIDOR, and it prices
+    only the facts this list cannot hold: a camp we woke and LOST SIGHT
+    OF, and the corridor where we died. The two sets are disjoint, so
+    no damage is counted twice (the F3b first cut priced the awake
+    camps in both places, and the double discount cost 15% of the
+    gems and 55% of the fuel - measured on the ten-map A/B).
     """
     out: list = []
     for record in awake_monsters(snap):
