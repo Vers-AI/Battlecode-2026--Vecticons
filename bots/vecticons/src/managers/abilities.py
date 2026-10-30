@@ -136,11 +136,29 @@ _OUR_SLOTS = {}
 _ENEMY_SLOTS = {}
 
 
-# --- TEMPORARY FUEL PROBES (removed before commit) ---
+# --- FUEL PROBES (the section-cost instrument) ---
+#
+# The probe reads the fuel before and after a section and prints the
+# delta every 25th call. FUEL: `cambc.fuel_remaining()` is a HOST call
+# and it is NOT cheap - measured at ~6.5k fuel a read - so probing every
+# call cost ~26k fuel per turn, i.e. ~1.4% of the turn budget, which is
+# enough to push the top percent of turns over the ceiling and to show
+# up in the campaign's fuelExhausted count (the F3 campaign measured
+# 61,164 exhaustions with the probe on every call).
+#
+# The probe is an INSTRUMENT, not a mechanism: it reads fuel and prints.
+# It never changes a decision. So it samples (every 25th call) and the
+# section costs stay measurable at 1/25 of the price.
 _PROBE_N = {}
+_PROBE_EVERY = 25
 
 
-def _p0():
+def _p0(name):
+    """The fuel before a section, or -1 when this call is not sampled."""
+    n = _PROBE_N.get(name, 0) + 1
+    _PROBE_N[name] = n
+    if n % _PROBE_EVERY != 0:
+        return -1
     try:
         return int(cambc.fuel_remaining())
     except Exception:
@@ -148,16 +166,16 @@ def _p0():
 
 
 def _p1(name, f0):
+    """The fuel after a section; prints the delta on a sampled call."""
+    if f0 < 0:
+        # Not a sampled call: do NOT read the fuel (the read is the
+        # expensive part).
+        return
     try:
         f1 = int(cambc.fuel_remaining())
     except Exception:
         return
-    if f0 < 0:
-        return
-    n = _PROBE_N.get(name, 0) + 1
-    _PROBE_N[name] = n
-    if n % 7 == 0:
-        print(f"f3probe: {name} cost={f0 - f1}", flush=True)
+    print(f"f3probe: {name} cost={f0 - f1}", flush=True)
 
 
 def counters() -> dict:
@@ -315,7 +333,7 @@ def facts(snap) -> dict:
     cached = getattr(snap, "ability_facts", None)
     if cached is not None:
         return cached
-    _pf = _p0()
+    _pf = _p0("facts")
     slots = []
     ready = []
     ready_damage = []
@@ -364,7 +382,7 @@ def can_cast_now(snap) -> bool:
         pass
     state = getattr(snap, "ability_state", None)
     if state is None:
-        _pf = _p0()
+        _pf = _p0("can_cast")
         try:
             state = bool(cambc.ChampionState.CAN_CAST in snap.me.state())
         except Exception:
@@ -521,7 +539,7 @@ def our_burst_against(snap, enemy, ex: int, ey: int) -> float:
     engine read per candidate slot), and only for the slots that are
     actually ready and in range.
     """
-    _pf = _p0()
+    _pf = _p0("our_burst")
     px, py = snap.origin_xy
     best = 0.0
     for slot in facts(snap)["ready_damage"]:
@@ -601,7 +619,7 @@ def enemy_burst_against(snap, enemy, ex: int, ey: int) -> float:
     caller passes the threat view's contact and near lists), and each of
     them costs one cooldown read per slot plus one damage read.
     """
-    _pf = _p0()
+    _pf = _p0("enemy_burst")
     px, py = snap.origin_xy
     best = 0.0
     for slot in _enemy_slots(enemy):
@@ -642,7 +660,7 @@ def camp_burst(snap) -> float:
     cached = getattr(snap, "ability_camp_burst", None)
     if cached is not None:
         return float(cached)
-    _pf = _p0()
+    _pf = _p0("camp_burst")
     best = 0.0
     for slot in facts(snap)["ready_damage"]:
         if not (slot["mask"] & T_CAMPS):
@@ -1151,7 +1169,7 @@ def offensive_cast(snap, enemy, ex: int, ey: int, allow_walk: bool = True) -> bo
         return False
     if not can_cast_now(snap):
         return False
-    _pf = _p0()
+    _pf = _p0("offensive_cast")
     basic = _basic_damage(snap)
     threshold = basic * float(config.ABILITY_CAST_MIN_DAMAGE_FACTOR)
     best_slot = None

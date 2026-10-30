@@ -84,7 +84,7 @@ F3B_LINE = re.compile(
     r"zones=(?P<zones>\d+)\s+awake=(?P<awake>\d+)\s+"
     r"deaths=(?P<deaths>\d+)\s+holds=(?P<holds>\d+)\s+"
     r"priced=(?P<priced>\d+)\s+r=(?P<r>\d+)"
-    r"(?:\s+fu=(?P<fu>\d+))?(?:\s+fp=(?P<fp>\d+))?"
+    r"(?:\s+fu=(?P<fu>\d+))?(?:\s+fp=(?P<fp>\d+))?(?:\s+fn=(?P<fn>\d+))?"
 )
 
 
@@ -205,15 +205,17 @@ def harvest_f3b_counters(stdout: str, replay: Path | None) -> dict:
                             "priced": int(m.group("priced")),
                             "fuel_update": int(m.group("fu") or 0),
                             "fuel_price": int(m.group("fp") or 0),
+                            "fuel_n": int(m.group("fn") or 0),
                             "round": int(m.group("r")),
                         }
         except Exception:
             return {}
     total = {"zones": 0, "awake": 0, "deaths": 0, "holds": 0, "priced": 0,
-             "fuel_update": 0, "fuel_price": 0, "champions": len(per_champ)}
+             "fuel_update": 0, "fuel_price": 0, "fuel_n": 0,
+             "champions": len(per_champ)}
     for facts in per_champ.values():
         for key in ("zones", "awake", "deaths", "holds", "priced",
-                    "fuel_update", "fuel_price"):
+                    "fuel_update", "fuel_price", "fuel_n"):
             total[key] += facts[key]
     return total
 
@@ -320,7 +322,7 @@ def aggregate(results, label, our_side="teamA"):
                  "shield": 0, "dash": 0, "reset": 0, "champions": 0}
     f3b_total = {"zones": 0, "awake": 0, "deaths": 0, "holds": 0,
                  "priced": 0, "fuel_update": 0, "fuel_price": 0,
-                 "champions": 0}
+                 "fuel_n": 0, "champions": 0}
     for r in sorted(results, key=lambda r: r["map"]):
         if r["status"] != "ok" or not r.get("stats"):
             rows.append({"map": r["map"], "status": r["status"]})
@@ -495,7 +497,8 @@ def main():
     # charges the bot WASM fuel per turn; a turn that runs out is a
     # fuelExhausted event, which is the campaign's compute-cost gate).
     print(f"[{args.label}] TRANSIT FUEL update={f3b.get('fuel_update', 0)} "
-          f"price={f3b.get('fuel_price', 0)}", flush=True)
+          f"price={f3b.get('fuel_price', 0)} "
+          f"samples={f3b.get('fuel_n', 0)}", flush=True)
     if args.verdict_file:
         vp = Path(args.verdict_file)
         if vp.exists():

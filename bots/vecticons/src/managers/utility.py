@@ -2578,9 +2578,14 @@ def _apply_path_exposure(cands, snap, field) -> dict:
         # and one after, so the campaign can report what the transit
         # term actually costs (the engine charges the bot WASM fuel per
         # turn, and a turn that runs out is a "fuelExhausted" event -
-        # the f1-retest gate counts those).
+        # the f1-retest gate counts those). The probe SAMPLES (every
+        # 25th turn, decided by the transit layer): a host read is not
+        # free, and an instrument must not tax the mechanism it
+        # measures.
         try:
-            _f0 = int(cambc.fuel_remaining())
+            _f0 = None
+            if bool(getattr(bot, "transit_probe", False)):
+                _f0 = int(cambc.fuel_remaining())
         except Exception:
             _f0 = None
         for idx in selected:
