@@ -90,8 +90,9 @@ from typing import Any
 import cambc
 
 import config
-from managers import execution, fielding, intelligence
+from managers import abilities, execution, fielding, intelligence
 from managers import observation
+from managers import transit
 
 
 # F1 CLOSEOUT (2026-10-28): Threat-view tuple cache
@@ -136,6 +137,12 @@ _CACHE_MISSES: int = 0
 _EV_PRUNES: int = 0
 _CHASE_COMMITS: int = 0
 _CHASE_BOOSTS: int = 0
+
+
+# F3b: the regroup state lives on the bot instance, keyed by the
+# champion id (bot.regroup_streak) - the bot instance and the module
+# globals are shared by the whole team, so a module-level counter would
+# count the turns of ALL our champions at once.
 
 
 def counters() -> dict:
@@ -983,6 +990,13 @@ def _hostile_threat(snap) -> dict:
         "near": [],      # (enemy, dist, damage) - closing
         "contact_dps": 0.0,
         "near_dps": 0.0,
+        # F3a: the enemy ability burst. An enemy whose cooldowns are down
+        # is much more dangerous than its basic attack says, and every
+        # P(survive) has to know that. The burst is a ONE-SHOT number (an
+        # 8-round cooldown, not a per-turn damage source), so it enters
+        # the threat model as a single chunk.
+        "burst": 0.0,
+        "burst_by_handle": {},
     }
     px, py = snap.origin_xy
     pursue = int(config.THREAT_PURSUE_TILES)
@@ -1042,6 +1056,53 @@ def _hostile_threat(snap) -> dict:
             view["contact"].append(entry)
             view["contact_dps"] += entry[2]
         view["near_dps"] = 0.0
+    # F3a: the enemy ability burst, folded into the threat picture.
+    #
+    # FUEL: the read is ~4 engine calls per enemy (the cached ability
+    # slots, their cooldowns and the damage against us), so it is
+    # restricted to the enemies that can ACTUALLY REACH US - the threat
+    # view's contact and near lists. A far-away enemy's ability is not
+    # incoming damage, so pricing it would cost fuel and mean nothing.
+    # The cap (config.ABILITY_THREAT_ENEMY_CAP) takes the closest ones.
+    cap = int(config.ABILITY_THREAT_ENEMY_CAP)
+    if cap > 0:
+        pool = []
+        seen_handles = set()
+        for entry in list(view["contact"]) + list(view["near"]):
+            h = _enemy_handle(entry[0])
+            if h in seen_handles:
+                continue
+            seen_handles.add(h)
+            pool.append(entry)
+        pool.sort(key=lambda entry: entry[1])
+        for entry in pool[:cap]:
+            enemy = entry[0]
+            pos = entry[3]
+            try:
+                ex = int(pos.x)
+                ey = int(pos.y)
+            except Exception:
+                continue
+            try:
+                burst = abilities.enemy_burst_against(snap, enemy, ex, ey)
+            except Exception:
+                burst = 0.0
+            if burst > 0.0:
+                view["burst_by_handle"][_enemy_handle(enemy)] = burst
+    # The chunk that lands on US: the bursts of the enemies that are in
+    # contact (or closing), summed.
+    contact_handles = set()
+    for entry in view["contact"]:
+        contact_handles.add(_enemy_handle(entry[0]))
+    burst_total = 0.0
+    for handle, burst in view["burst_by_handle"].items():
+        if handle in contact_handles:
+            burst_total += burst
+    if burst_total <= 0.0 and not contact_handles:
+        # Nobody is in contact: the closest enemies' bursts are the
+        # incoming threat if they close.
+        burst_total = sum(view["burst_by_handle"].values())
+    view["burst"] = burst_total
     try:
         snap.threat_view = view
     except Exception:
@@ -1075,6 +1136,12 @@ def _threat_factor(snap, turns, view=None) -> float:
         return 1.0
     t = max(1, int(turns))
     incoming = contact_dps * t + near_dps * min(t, _T_PURSUIT_TURNS)
+    # F3a: the enemy's ready ability burst is a ONE-SHOT chunk of
+    # incoming damage (an 8-round cooldown, not a per-turn source), so
+    # it enters once, not multiplied by the action's length.
+    burst = float(view.get("burst", 0.0) or 0.0)
+    if burst > 0.0:
+        incoming += burst
     if incoming <= 0.0:
         return 1.0
     hp = float(snap.hp)
@@ -1171,7 +1238,8 @@ def _fight_win(ratio: float) -> float:
     return p
 
 
-def _fight_window(snap, enemy, dist, dmg, our_damage):
+def _fight_window(snap, enemy, dist, dmg, our_damage, ex=0, ey=0,
+                  in_range=False):
     """How long the fight lasts and how much damage we take in it.
 
     The window is not symmetric: a MELEE champion walks and attacks in
@@ -1182,6 +1250,13 @@ def _fight_window(snap, enemy, dist, dmg, our_damage):
 
     FUEL: reach/hp come from the per-turn enemy tuple cache (one engine
     build per turn in generate_candidates, plain-int reads here).
+
+    F3a (the ability layer folded in):
+      * OUR burst removes hits from the kill time - a damage spell is a
+        one-shot that shortens the fight, so the fight is priced as the
+        shorter fight it actually is.
+      * THEIR burst (the enemy's ready ability) is a one-shot chunk of
+        incoming damage, so the window carries it once.
     """
     our_reach = _our_reach(snap)
     handle = _enemy_handle(enemy)
@@ -1210,7 +1285,39 @@ def _fight_window(snap, enemy, dist, dmg, our_damage):
     their_close = dist - their_reach
     if their_close < 0:
         their_close = 0
-    hits = int(math.ceil(their_hp / max(1.0, our_damage)))
+    # F3a: our ability burst against this target.
+    #
+    # FUEL: the EXACT number (`ability_damage_against`) costs one engine
+    # read per ready damage slot, so it is read only for the enemy we
+    # are actually fighting. The other candidates (the chase targets)
+    # use the RAW focus-scaled number, which is one read for the whole
+    # turn and is close enough for an estimate that only discounts a
+    # walk.
+    our_burst = 0.0
+    try:
+        if in_range:
+            our_burst = abilities.our_burst_against(snap, enemy, ex, ey)
+        else:
+            our_burst = abilities.raw_burst_within(snap, ex, ey)
+    except Exception:
+        our_burst = 0.0
+    our_burst *= float(config.ABILITY_BURST_WEIGHT)
+    # F3a: the enemy's ready burst against US (from the threat view).
+    their_burst = 0.0
+    try:
+        view = _hostile_threat(snap)
+        their_burst = float(
+            view.get("burst_by_handle", {}).get(handle, 0.0) or 0.0
+        )
+    except Exception:
+        their_burst = 0.0
+    their_burst *= float(config.ABILITY_ENEMY_BURST_WEIGHT)
+    effective_hp = their_hp - our_burst
+    if effective_hp <= 0.0:
+        # The burst alone finishes them: one turn of the fight.
+        hits = 1
+    else:
+        hits = int(math.ceil(effective_hp / max(1.0, our_damage)))
     kill_turns = our_close + hits
     damage_turns = hits
     if their_close > 0 and their_reach <= 1:
@@ -1219,7 +1326,7 @@ def _fight_window(snap, enemy, dist, dmg, our_damage):
     return {
         "hits": hits,
         "kill_turns": kill_turns,
-        "incoming": dmg * damage_turns,
+        "incoming": dmg * damage_turns + their_burst,
     }
 
 
@@ -1372,7 +1479,8 @@ def _fight_candidates(snap, field) -> list:
         if not in_range:
             if dist > max_chase_turns:
                 continue
-        window = _fight_window(snap, enemy, dist, dmg, our_damage)
+        window = _fight_window(snap, enemy, dist, dmg, our_damage, ex, ey,
+                               in_range)
         if window is None:
             continue
         value = _kill_value(snap, enemy, ex, ey)
@@ -1561,6 +1669,13 @@ def _flee_candidates(snap) -> list:
     contact = view["contact"]
     if not contact:
         return []
+    # F3a: a ready DASH breaks contact in one turn where a walk only
+    # buys one tile, so the escape is materially more likely.
+    dash = False
+    try:
+        dash = abilities.dash_ready(snap)
+    except Exception:
+        dash = False
     best = None
     for enemy, dist, dmg, pos in contact:
         try:
@@ -1575,6 +1690,10 @@ def _flee_candidates(snap) -> list:
         # walks and attacks in the same turn.
         if reach <= 1 and dist <= 1:
             escape *= 0.5
+        if dash:
+            escape += float(config.ABILITY_DASH_ESCAPE_BONUS)
+            if escape > 0.95:
+                escape = 0.95
         score = _ev(snap, escape, float(config.FLEE_BASE_VALUE),
                     bag_in_success=True)
         if best is None or score > best[0]:
@@ -2064,6 +2183,16 @@ def _clear_map(snap) -> dict:
         cur_hp = max_hp
     if cur_hp <= 0.0:
         cur_hp = max_hp
+    # F3a: the ability burst shortens the clear. A damage spell lands
+    # ONCE per clear (an 8-round cooldown), so it removes one burst's
+    # worth of HP from the arithmetic - and that changes the "too strong
+    # to engage" verdicts the basic-attack-only estimate got wrong.
+    try:
+        camp_burst = abilities.camp_burst(snap) * float(
+            config.ABILITY_CAMP_BURST_WEIGHT
+        )
+    except Exception:
+        camp_burst = 0.0
     out = {}
     for cls in classes:
         try:
@@ -2074,7 +2203,11 @@ def _clear_map(snap) -> dict:
             continue
         clear_turns = _T_CLEAR_FLOOR
         if hp > 0.0 and team_dps > 0.0:
-            hp_turns = int(math.ceil(hp / team_dps))
+            effective = hp - camp_burst
+            if effective <= 0.0:
+                hp_turns = 1
+            else:
+                hp_turns = int(math.ceil(effective / team_dps))
             if hp_turns > clear_turns:
                 clear_turns = hp_turns
         if clear_turns < 1:
@@ -2335,7 +2468,7 @@ def _farm_candidates(snap, field, clear_map=None) -> list:
 # ---------------------------------------------------------------------------
 
 
-def _apply_path_exposure(cands, snap, field) -> None:
+def _apply_path_exposure(cands, snap, field) -> dict:
     """Fold the path exposure into the top candidates' P(survive).
 
     The path comes from the CACHED gradient walk (managers.fielding): the
@@ -2351,15 +2484,27 @@ def _apply_path_exposure(cands, snap, field) -> None:
 
     The bank candidate is always part of the read set (the carried-gem risk
     term is a S2.3 deliverable), plus the best candidate overall.
+
+    F3b: the same walk also prices the TRANSIT - the corridor between
+    here and the goal - against the DYNAMIC danger zones (the awake camps
+    and the death corridors). The destination exposure covers the tiles
+    next to the goal; the transit term covers the WHOLE walk, so the
+    route AROUND an aggro'd zone wins the argmax instead of the route
+    through it. The transit term prices the ROUTING kinds only (farm,
+    capture): the walk home has no alternative route, so pricing it
+    could only stop the bot from banking (measured - see the note
+    below). The return value maps the candidate index to its
+    (total, corridor) transit damage - the corridor part is what the
+    regroup decision reads (a danger we walk INTO is a corridor; the
+    danger at the destination is the destination's own business).
     """
+    transit_damage: dict = {}
     if not cands or field is None:
-        return
+        return transit_damage
     threat_list = fielding.threats(snap)
-    if not threat_list:
-        return
     bot = getattr(snap, "bot", None)
     if bot is None:
-        return
+        return transit_damage
     # S2.3 FUEL: the exposure probe costs a gradient walk per probed goal,
     # and the walk is CACHED on the bot (managers.fielding), so a repeated
     # goal is nearly free. A fuel guard here was measured and REJECTED:
@@ -2394,16 +2539,211 @@ def _apply_path_exposure(cands, snap, field) -> None:
             bot, snap, "boss" if kind == "boss" else "scoring", goal
         )
         damage = fielding.path_exposure(path, threat_list)
-        if damage <= 0.0:
-            continue
-        survive = _survival(damage, float(snap.max_hp))
-        cand[2] = float(cand[2]) * survive
-        cand[3] = f"{cand[3]} exp={int(damage)}"
+        if damage > 0.0:
+            survive = _survival(damage, float(snap.max_hp))
+            cand[2] = float(cand[2]) * survive
+            cand[3] = f"{cand[3]} exp={int(damage)}"
+    # F3b: the TRANSIT term (the walk, priced against the MEMORY danger
+    # zones - the camps we woke and lost sight of, and the corridor
+    # where we died). It runs on the same probed set, and it prices the
+    # WHOLE walk: the danger that matters for a corridor is the danger
+    # at OUR end of it, which the near-goal exposure prefix does not
+    # see at all.
+    #
+    # The two sets are DISJOINT: the awake camps the vision can still
+    # see are priced by the exposure term above, and the transit term
+    # prices only the ones the vision CANNOT see. So no damage is
+    # counted twice.
+    #
+    # ONLY THE ROUTING KINDS. The transit term exists to price WHICH
+    # CAMP we walk to - it is the price of a ROUTE, and only a route has
+    # an alternative. The walk HOME (the bank) has no alternative: there
+    # is exactly one way to the altar, so pricing it cannot reroute
+    # anything - it can only make the bot carry its gems forever.
+    #
+    # That was measured, not assumed (the 00gemfight replay of the F3b
+    # ten-map A/B): the altar of 00gemfight sits next to a camp, the
+    # walk home crossed that camp's zone, the bank candidate lost half
+    # its score every turn (2.6 against 4.8), the farming candidates
+    # (4.5-5.5) won the argmax instead, and the team collected 300
+    # gems it never banked: 124 submitted against the F3a baseline's
+    # 1,026. The bank keeps its F3a price (the carried-gem risk term).
+    try:
+        zone_list = transit.zones(snap)
+    except Exception:
+        zone_list = []
+    if zone_list:
+        version = transit.zone_version(snap)
+        # The FUEL PROBE: one `fuel_remaining()` read before the pricing
+        # and one after, so the campaign can report what the transit
+        # term actually costs (the engine charges the bot WASM fuel per
+        # turn, and a turn that runs out is a "fuelExhausted" event -
+        # the f1-retest gate counts those).
+        try:
+            _f0 = int(cambc.fuel_remaining())
+        except Exception:
+            _f0 = None
+        for idx in selected:
+            cand = cands[idx]
+            kind = cand[0]
+            if kind not in ("farm", "capture"):
+                continue
+            goal = cand[4] if len(cand) > 4 else None
+            if goal is None:
+                continue
+            total, corridor = fielding.transit_damage(
+                bot, snap, "scoring", goal, zone_list, version,
+            )
+            if total <= 0.0:
+                continue
+            weight = float(config.TRANSIT_DAMAGE_WEIGHT)
+            survive = _survival(total * weight, float(snap.max_hp))
+            floor = float(config.TRANSIT_SURVIVAL_FLOOR)
+            if survive < floor:
+                survive = floor
+            cand[2] = float(cand[2]) * survive
+            cand[3] = f"{cand[3]} transit={int(total)}"
+            transit_damage[idx] = (float(total), float(corridor))
+            transit.count_priced()
+        if _f0 is not None:
+            try:
+                transit._FUEL["price"] += _f0 - int(cambc.fuel_remaining())
+            except Exception:
+                pass
+    return transit_damage
 
 
 # ---------------------------------------------------------------------------
 # Public API.
 # ---------------------------------------------------------------------------
+
+
+def _regroup_candidate(cands, snap, transit_damage) -> None:
+    """The REGROUP hold (F3b): wait for the company.
+
+    The respawn -> walk-back-alone -> die loop is a GROUP problem: a
+    champion that died in a corridor walks back through the SAME corridor
+    alone and dies again (the evidence match: 18 corridor deaths, the same
+    champion, the same corridor, every ~70 rounds). The transit term
+    already reroutes the champion around a priced corridor; this is the
+    case where EVERY route we would take crosses one.
+
+    The hold is a scored candidate, so the argmax picks it: it outscores
+    the action it defers (REGROUP_HOLD_BONUS) and it expires
+    (REGROUP_MAX_ROUNDS), so a permanent danger cannot freeze the bot.
+
+    Conditions (all of them):
+      * the action we would take is a TRANSIT action (farm / capture) -
+        we never defer a fight, a flee, a bank or a recall;
+      * its route crosses a CORRIDOR worth more than
+        REGROUP_DAMAGE_FRACTION of our health pool (the danger at the
+        destination and the danger we stand in are not corridors);
+      * no hostile champion is in contact (we do not stand still with an
+        enemy on us);
+      * no ally is within REGROUP_ALLY_TILES - with company we cross as
+        a group instead of waiting;
+      * we carry NO gems - a champion with a bag has a strictly better
+        action than waiting (walk home and bank it), so the hold is
+        reserved for the empty-handed champion of the loop.
+
+    The hold streak is PER CHAMPION. The bot instance (and the module
+    globals) are shared by the whole team, so a module-level counter
+    counted the turns of ALL our champions: one champion's hold
+    shortened the expiry for the others. The streak lives on the bot
+    instance, keyed by the champion id.
+    """
+    bot = getattr(snap, "bot", None)
+    if bot is None:
+        return
+    try:
+        champ = int(snap.me.champion_name())
+    except Exception:
+        champ = -1
+    state = getattr(bot, "regroup_streak", None)
+    if not isinstance(state, dict):
+        state = {}
+        try:
+            bot.regroup_streak = state
+        except Exception:
+            pass
+    streak = int(state.get(champ, 0))
+
+    def _clear():
+        state[champ] = 0
+
+    if not cands or not transit_damage:
+        _clear()
+        return
+    try:
+        if int(getattr(snap, "gems", 0)) > 0:
+            # A bag in hand beats a wait: bank it.
+            _clear()
+            return
+    except Exception:
+        pass
+    # The action the bot would otherwise take: the hold may only
+    # preempt THAT action (a hold that beat a better action would waste
+    # the turn on a fear instead of on gems). The shop candidates are
+    # skipped: bot.py removes them from the argmax set before it picks
+    # (a purchase is a free parallel action, not a move).
+    best_idx = -1
+    for index, cand in enumerate(cands):
+        if cand[0] in ("shop", "lock"):
+            continue
+        try:
+            score = float(cand[2])
+        except Exception:
+            continue
+        if best_idx < 0 or score > float(cands[best_idx][2]):
+            best_idx = index
+    if best_idx < 0:
+        _clear()
+        return
+    if cands[best_idx][0] not in ("farm", "capture"):
+        # A bank, a recall or a fight is never deferred.
+        _clear()
+        return
+    facts = transit_damage.get(best_idx) or (0.0, 0.0)
+    try:
+        damage = float(facts[1])
+    except Exception:
+        damage = 0.0
+    threshold = float(config.REGROUP_DAMAGE_FRACTION) * float(snap.max_hp)
+    if damage < threshold:
+        _clear()
+        return
+    if streak >= int(config.REGROUP_MAX_ROUNDS):
+        # The hold expires: the bot goes anyway. No deadlock. The
+        # negative streak is the cooldown after an expiry - the hold is
+        # not a metronome.
+        state[champ] = -int(config.REGROUP_MAX_ROUNDS)
+        return
+    if streak < 0:
+        # The cooldown after an expiry: the bot may not hold again yet.
+        state[champ] = streak + 1
+        return
+    try:
+        view = _hostile_threat(snap)
+        if view.get("contact"):
+            # We do not stand still with an enemy on us.
+            _clear()
+            return
+    except Exception:
+        pass
+    try:
+        if transit.ally_close(snap, int(config.REGROUP_ALLY_TILES)):
+            # We have company: crossing as a group beats waiting.
+            _clear()
+            return
+    except Exception:
+        pass
+    score = float(cands[best_idx][2]) * float(config.REGROUP_HOLD_BONUS)
+    cands.append([
+        "regroup", None, score,
+        f"regroup wait d={int(damage)}", None,
+    ])
+    state[champ] = streak + 1
+    transit.count_hold()
 
 
 def generate_candidates(snap) -> list[Candidate]:
@@ -2544,9 +2884,17 @@ def generate_candidates(snap) -> list[Candidate]:
 
     # Threat term: fold the path exposure into the top candidates.
     try:
-        _apply_path_exposure(out, snap, field)
+        transit_damage = _apply_path_exposure(out, snap, field)
     except Exception as error:
         _report("path exposure", error)
+        transit_damage = {}
+
+    # F3b: the regroup hold - an action that crosses a lethal corridor
+    # while we are alone is deferred (the bot waits for the company).
+    try:
+        _regroup_candidate(out, snap, transit_damage)
+    except Exception as error:
+        _report("regroup", error)
 
     # A candidate worth nothing never wins the argmax (unreachable targets,
     # hopeless fights): drop the non-positive scores.

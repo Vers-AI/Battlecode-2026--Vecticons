@@ -57,9 +57,11 @@ import cambc
 from cambc import game_map
 
 import config
+from managers import abilities
 from managers import execution
 from managers import intelligence
 from managers import observation
+from managers import transit
 from managers import scouting
 from managers import utility
 
@@ -91,6 +93,29 @@ def _best_excluding(candidates, kind: str):
         except Exception:
             continue
     return best
+
+
+def _camp_caster(snap):
+    """The F3a camp-cast hook for execution.attack_first_in_range.
+
+    A damage spell at the camp we are already hitting shortens the clear
+    (the camp-clear time estimate prices the burst, so the two agree).
+    The cast is a separate turn resource from the basic attack, so both
+    land in the same turn.
+
+    F3b: striking a monster WAKES it (GameRules :190), so the camp we
+    hit becomes a priced danger zone - the dynamic awake-camp layer.
+    """
+    def _cast(camp):
+        try:
+            abilities.camp_cast(snap, camp)
+        except Exception:
+            pass
+        try:
+            transit.note_awake(snap, camp)
+        except Exception:
+            pass
+    return _cast
 
 
 def _standing_on_goals(goal, position) -> bool:
@@ -146,6 +171,12 @@ class Bot:
         # B1: our health from the previous turn - the "we were hit" signal
         # that turns a nearby enemy into a confirmed threat.
         self.last_hp = None
+        # F3b: the death-corridor facts. `last_pos` is where we stood on
+        # our last ALIVE turn (the place that killed us); `last_alive` is
+        # the alive flag of the previous turn, so the alive -> dead
+        # transition is detected exactly once per death.
+        self.last_pos = None
+        self.last_alive = False
         # S2.4: rate limit for the shopping evidence prints (a regular
         # print, so it survives --release).
         self.shop_logs = 0
@@ -365,7 +396,113 @@ class Bot:
             flush=True,
         )
 
+    def ability_evidence(self):
+        """Print the F3a ability-layer counters (rate limited).
+
+            f3a: <champion> casts=.. dmg=.. aoe=.. cc=.. heal=.. shield=..
+                 dash=.. reset=.. r=..
+
+        scripts/run_pool.py reads the LAST such line per champion out of
+        the replay bundle's team-a.stdout and sums it into the campaign
+        totals - the "ability casts > 0" gate is measured from this line.
+        """
+        try:
+            rnd = int(cambc.round_number())
+        except Exception:
+            return
+        if not (rnd <= 2 or rnd % 100 == 0):
+            # A cast happened since the last line: print again, so the
+            # campaign's "last line per champion" harvest reads the final
+            # totals even on a match that ends before the next tick.
+            try:
+                if not abilities.evidence_dirty():
+                    return
+            except Exception:
+                return
+        try:
+            short = observation.champion_short_name(int(cambc.me().champion_name()))
+        except Exception:
+            short = "?"
+        try:
+            c = abilities.counters()
+        except Exception:
+            return
+        by = c.get("by_kind", {}) or {}
+        print(
+            f"f3a: {short} casts={c['casts']} "
+            f"dmg={by.get('damage', 0)} aoe={by.get('aoe', 0)} "
+            f"cc={by.get('cc', 0)} heal={by.get('heal', 0)} "
+            f"shield={by.get('shield', 0)} dash={by.get('dash', 0)} "
+            f"reset={by.get('reset', 0)} r={rnd}",
+            flush=True,
+        )
+        try:
+            abilities.clear_evidence_dirty()
+        except Exception:
+            pass
+
+    def transit_evidence(self):
+        """Print the F3b transit/regroup counters (rate limited).
+
+            f3b: <champion> zones=.. awake=.. deaths=.. holds=.. priced=.. r=..
+
+        scripts/run_pool.py reads the LAST such line per champion out of
+        the replay bundle's team-a.stdout and sums it into the campaign
+        totals - the "the transit mechanism ran" evidence.
+        """
+        try:
+            rnd = int(cambc.round_number())
+        except Exception:
+            return
+        if not (rnd <= 2 or rnd % 100 == 0):
+            return
+        try:
+            short = observation.champion_short_name(int(cambc.me().champion_name()))
+        except Exception:
+            short = "?"
+        try:
+            c = transit.counters()
+        except Exception:
+            return
+        print(
+            f"f3b: {short} zones={c['zones']} awake={c['awake']} "
+            f"deaths={c['deaths']} holds={c['holds']} "
+            f"priced={c['priced']} r={rnd} "
+            f"fu={c['fuel_update']} fp={c['fuel_price']}",
+            flush=True,
+        )
+
     def play_turn(self):
+        """The turn entry point (F3a: a fuel probe around the body).
+
+        The probe reads the fuel at the start of every 25th turn and
+        prints the delta at the end of it, so it costs two engine reads
+        per 25 turns instead of two per turn. FUEL: the probe must not
+        eat the turn's fuel budget - the campaign gate compares the
+        fuel-exhaustion count against the F1 baseline.
+
+        The probe NEVER swallows an exception from the body: a crash has
+        to reach the engine as a bot fault, or the campaign's "0 faults"
+        gate would be counting a number the bot made up.
+        """
+        probe = None
+        try:
+            if int(cambc.round_number()) % 25 == 0:
+                probe = int(cambc.fuel_remaining())
+        except Exception:
+            probe = None
+        try:
+            self._play_turn_body()
+        finally:
+            if probe is not None:
+                try:
+                    used = probe - int(cambc.fuel_remaining())
+                    print(f'fuelprobe: r={int(cambc.round_number())} '
+                          f'used={used}', flush=True)
+                except Exception:
+                    pass
+
+    def _play_turn_body(self):
         # First-turn bookkeeping.
         if self.chosen_stat is None:
             try:
@@ -390,6 +527,44 @@ class Bot:
         snap = observation.snapshot(self, s23_cache=True)
         me = snap.me
         position = snap.position
+
+        # F3b: the transit layer. Two facts are refreshed here (no engine
+        # read: the observation layer already read the visible camps):
+        #   * the DYNAMIC awake-camp memory - a camp we saw awake, or one
+        #     we struck, stays a priced danger zone (a sleeping camp and an
+        #     engaged one are different terrain);
+        #   * the DEATH CORRIDOR - the place that killed us stays a priced
+        #     hazard, so the route around it wins the argmax and the
+        #     respawn -> walk-back-alone -> die loop loses its road.
+        _f0 = None
+        try:
+            _f0 = int(cambc.fuel_remaining())
+        except Exception:
+            _f0 = None
+        try:
+            transit.update(snap)
+        except Exception:
+            pass
+        if _f0 is not None:
+            try:
+                transit._FUEL["update"] += _f0 - int(cambc.fuel_remaining())
+            except Exception:
+                pass
+        try:
+            if snap.is_alive:
+                self.last_pos = (int(snap.origin_xy[0]), int(snap.origin_xy[1]))
+            elif self.last_alive and self.last_pos is not None:
+                # The hit that killed us (the health we had at the end of
+                # our last alive turn) is the honest price of the tile.
+                try:
+                    hurt = float(self.last_hp) if self.last_hp else 0.0
+                except Exception:
+                    hurt = 0.0
+                transit.note_death(snap, self.last_pos[0], self.last_pos[1],
+                                   hurt)
+            self.last_alive = bool(snap.is_alive)
+        except Exception:
+            pass
 
         # Intel: persist last-known enemy locations (facts only; runs even
         # while channeling — spotting an enemy mid-tribute is exactly when
@@ -578,6 +753,19 @@ class Bot:
         except Exception:
             pass
 
+        # F3a: the ability-layer evidence line (the campaign's "ability
+        # casts > 0" gate reads these counters off the stdout).
+        try:
+            self.ability_evidence()
+        except Exception:
+            pass
+
+        # F3b: the transit/regroup evidence line.
+        try:
+            self.transit_evidence()
+        except Exception:
+            pass
+
         # Diagnostic - log every cand.kind for first few rounds.
         try:
             if cambc.round_number() <= 20:
@@ -620,6 +808,18 @@ class Bot:
             # camp group's spawn tiles, the altar's approach ring, our own
             # spawn). It is the tile the cached gradient path ends at.
             goal = cand[4] if len(cand) > 4 else None
+
+            # F3b: the REGROUP hold - the argmax picked "wait for the
+            # company" over an action that crosses a lethal corridor while
+            # we are alone (the respawn -> walk-back-alone -> die loop).
+            # The hold does not move; the free parallel actions (the shop,
+            # the ward, the lock) already ran above.
+            if kind == "regroup":
+                try:
+                    abilities.defensive_cast(snap)
+                except Exception:
+                    pass
+                return
 
             # Capture: stand on the cleared spawn tile for 5 rounds.
             if kind == "capture":
@@ -705,6 +905,24 @@ class Bot:
                     pos = target.position()
                 except Exception:
                     pos = None
+                # F3a: the ESCAPE DASH - a dash breaks contact in one
+                # turn where a walk only buys one tile. It fires only when
+                # it takes us out of the threat's reach, so the 8-round
+                # cooldown is not spent on a wasted step.
+                try:
+                    if pos is not None:
+                        if abilities.dash_escape(snap, target,
+                                                 int(pos.x), int(pos.y)):
+                            return
+                except Exception:
+                    pass
+                # F3a: no dash - the defensive cast instead (a heal or a
+                # shield). It is compatible with walking, so the step
+                # away below still happens.
+                try:
+                    abilities.defensive_cast(snap)
+                except Exception:
+                    pass
                 if execution.move_away_from(pos):
                     return
                 # B1: the escape step FAILED - we are cornered (the probe
@@ -726,7 +944,22 @@ class Bot:
                 try:
                     atk = execution.our_attack_tiles(snap)
                     if atk is not None and atk.is_set(target.position()):
+                        # F3a: the ability layer in the fight action.
+                        #
+                        # The basic attack comes FIRST: a cast does not
+                        # consume the attack allowance, so the spell still
+                        # lands in the same turn, and the ATTACK RESET
+                        # must be cast after an attack (the engine refuses
+                        # a reset while an attack is still available).
                         me.attack(target)
+                        pos = target.position()
+                        cast = abilities.combat_cast(
+                            snap, target, int(pos.x), int(pos.y)
+                        )
+                        if cast == "reset":
+                            # The reset restored the attack allowance:
+                            # the champion strikes a second time.
+                            me.attack(target)
                         return
                 except Exception:
                     pass
@@ -744,7 +977,31 @@ class Bot:
                         atk = execution.our_attack_tiles(snap)
                         if atk is not None and atk.is_set(target.position()):
                             me.attack(target)
+                            pos = target.position()
+                            cast = abilities.combat_cast(
+                                snap, target, int(pos.x), int(pos.y)
+                            )
+                            if cast == "reset":
+                                me.attack(target)
                             return
+                except Exception:
+                    pass
+                # F3a: the ENGAGE DASH - one turn of closing instead of
+                # one tile, and the landing effect may hit the target.
+                try:
+                    pos = target.position()
+                    if abilities.dash_engage(snap, target,
+                                             int(pos.x), int(pos.y)):
+                        return
+                except Exception:
+                    pass
+                # F3a: an offensive cast that does not cost us the walk
+                # (or that ends the engagement outright).
+                try:
+                    pos = target.position()
+                    if abilities.offensive_cast(snap, target, int(pos.x),
+                                                int(pos.y), allow_walk=False):
+                        return
                 except Exception:
                     pass
                 if goal is not None and execution.move_towards_goal(
@@ -792,8 +1049,17 @@ class Bot:
             # attack any visible camp in our attack tiles before and after the
             # move (killable-filtered via snap: never wake a Monolith's group).
             if kind == "farm":
+                # F3a: the defensive cast first (a heal or a shield while
+                # a hostile champion is on us - it is compatible with
+                # walking, so it costs no step), then the camp burst.
                 try:
-                    if execution.attack_first_in_range(snap.visible_camps, snap):
+                    abilities.defensive_cast(snap)
+                except Exception:
+                    pass
+                try:
+                    if execution.attack_first_in_range(
+                        snap.visible_camps, snap, on_target=_camp_caster(snap)
+                    ):
                         return
                 except Exception:
                     pass
@@ -802,7 +1068,9 @@ class Bot:
                 ):
                     return
                 try:
-                    execution.attack_first_in_range(snap.visible_camps, snap)
+                    execution.attack_first_in_range(
+                        snap.visible_camps, snap, on_target=_camp_caster(snap)
+                    )
                 except Exception:
                     pass
                 return

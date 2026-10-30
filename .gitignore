@@ -28,3 +28,7 @@ records/*
 !records/dominance-v1/**
 !records/f1-closeout/
 !records/f1-closeout/**
+!records/f3a-spot/
+!records/f3a-spot/**
+!records/f3-campaign/
+!records/f3-campaign/**

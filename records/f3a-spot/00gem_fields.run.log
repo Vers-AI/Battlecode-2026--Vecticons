@@ -1,0 +1,24 @@
+Using map: /tmp/opencode/f3-ability-wt/maps/00gem_fields.map26a
+vecticons vs starter-python on /tmp/opencode/f3-ability-wt/maps/00gem_fields.map26a
+Team A (vecticons) wins: reached 1000 gems in round 1139
+  team bot             gems kills deaths gold earned  crashes  draft
+  A    vecticons       1005     1     24        1241        0  Ryth, Stellar, Vesper Vale, Varg, Willow
+  B    starter-python   294     0     14         351        0  Vendetta, Vesper Vale, Prism, Ryth, Willow
+replay bundle: /tmp/opencode/f3-ability-wt/replays/vecticons-vs-starter-python-1793323791724.repl26a
+match summary: /tmp/opencode/f3-ability-wt/results/f3a-spot/00gem_fields.stats.json
+
+--- stderr ---
+drafting: round 0/2000
+running: round 0/2000
+running: round 100/2000
+running: round 200/2000
+running: round 300/2000
+running: round 400/2000
+running: round 500/2000
+running: round 600/2000
+running: round 700/2000
+running: round 800/2000
+running: round 900/2000
+running: round 1000/2000
+running: round 1100/2000
+finished: round 1139/2000 — teamA
