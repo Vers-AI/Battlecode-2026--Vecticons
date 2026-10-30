@@ -779,10 +779,6 @@ def _bank_candidates(snap, field) -> list:
     density = getattr(snap, "region_sightings", {}) or {}
     regions = getattr(snap, "altar_regions", None) or {}
     px, py = snap.origin_xy
-    try:
-        lock_hits = max(1, int(config.ALTAR_LOCK_HITS))
-    except Exception:
-        lock_hits = 5
     # One pass over the altars: the modifiers and the score bound are
     # plain-int / float arithmetic (no engine call).
     entries = []
@@ -791,7 +787,12 @@ def _bank_candidates(snap, field) -> list:
         # already here; the lock no longer removes the altar from the
         # argmax, it only makes the altar more expensive.
         locked = _altar_locked(snap, (ax, ay))
-        break_turns = lock_hits if locked else 0
+        break_turns = 0
+        if locked:
+            try:
+                break_turns = max(1, int(config.ALTAR_LOCK_HITS))
+            except Exception:
+                break_turns = 5
         dx = int(ax) - px
         if dx < 0:
             dx = -dx
