@@ -106,8 +106,50 @@ reference 5,922 - feature cost: wards+shopping on 70 maps, not a
 regression; owner ruled the new reference"), and the F1 closeout
 re-based its fuel reference upward (22,230 -> 25,687).
 
-## 5. What is NOT claimed
+## 5. The tuning attempt that was made, measured, and REJECTED
+
+The obvious honest mitigation is to stop paying for the instrumentation:
+`cambc.fuel_remaining()` is a host call worth ~3,650 fuel a read, and the
+probe scaffolding was reading it four times a turn (the transit probes
+around the memory refresh and the transit pricing) plus four more (the
+F3a ability-layer probes, which the F3a commit left in with the comment
+"TEMPORARY FUEL PROBES (removed before commit)"). Together that is
+~29,000 fuel per turn - ~1.2% of the ~2.49M per-turn budget - of pure
+instrumentation, on a bot whose completed turns already sit at 1.75M
+(p50) to 2.29M (p90).
+
+That variant was built and measured in full (commit 120ee79, the probes
+sampling every 25th turn instead of every turn):
+
+| run | record | gems | fuelExhausted |
+|---|---|---|---|
+| `f3-campaign` (the shipped, measured state) | **58-12** | **41,255** | 61,164 |
+| `f3-campaign-v2` (the probes sampling) | 55-15 | 41,065 | **57,736** |
+
+**It was REJECTED, and the reason is the record gate, not the fuel.**
+Sampling the probes does not change a single decision, but it gives each
+turn ~29,000 more fuel, and a turn that used to be CUT SHORT by the
+engine now completes - so the bot plays a genuinely different match.
+28 of the 70 maps came out differently (the repo's own noise-floor note:
+"only same-bytes comparisons are meaningful"), and the record landed at
+**55-15 - below the 56-14 gate**.
+
+So the shipped state is the `f3-campaign` state: it is the code the
+campaign actually measured, and it is the variant that clears the
+record, gems, fault and cast gates. The v2 numbers are kept here (and
+under `records/f3-campaign/tuning-attempt-v2/`) because the bounds they
+give are real:
+
+  * the instrumentation is worth ~3,400 fuel exhaustions, i.e. ~5% of the
+    fuel line - the line is NOT an artifact of the probes;
+  * the transit layer's own cost, with the probe sampled, is ~950 fuel
+    per turn (update 695 + price 252) - **0.04% of the turn budget**.
+    The mechanism is cheap; the FUEL cost belongs to the ability layer's
+    engine reads (section 2) and to the rerouting the transit layer
+    causes (longer, different paths), not to the transit pricing itself.
+
+## 6. What is NOT claimed
 
 The fuel line is reported as the number it is. It is **not** claimed to
-clear the gate. The known, cheap and NOT yet shipped mitigation is in
-section 6.
+clear the gate.
+

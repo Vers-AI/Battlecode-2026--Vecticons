@@ -84,39 +84,7 @@ _COUNTERS = {
 # The campaign sums them over the team and prints them next to the
 # counters, so the claim "the transit layer costs ~N fuel a match" is a
 # measurement and not an assertion.
-#
-# THE PROBE SAMPLES. `cambc.fuel_remaining()` is a HOST call and it is
-# not cheap - measured at ~6.5k fuel a read - so probing it every turn
-# cost ~26k fuel per turn (~1.4% of the turn budget), which is enough
-# to push the top percent of turns over the engine's fuel ceiling and
-# to show up in the campaign's fuelExhausted count. The probe is an
-# INSTRUMENT, not a mechanism: it reads fuel and prints, and it never
-# changes a decision. So it samples every 25th turn, and "n" counts the
-# samples so the campaign can divide.
-_FUEL = {"update": 0, "price": 0, "n": 0}
-
-# The probe interval (turns).
-PROBE_EVERY = 25
-
-
-def probe_due(bot) -> bool:
-    """Is this turn a fuel-probe turn? (every PROBE_EVERY turns)
-
-    The counter lives on the bot instance (the module globals are shared
-    by the whole team, so a module-level counter would count the team's
-    turns, not ours).
-    """
-    n = int(getattr(bot, "transit_probe_n", 0) or 0) + 1
-    try:
-        bot.transit_probe_n = n
-    except Exception:
-        pass
-    due = (n % int(PROBE_EVERY)) == 0
-    try:
-        bot.transit_probe = due
-    except Exception:
-        pass
-    return due
+_FUEL = {"update": 0, "price": 0}
 
 
 def counters() -> dict:
@@ -125,7 +93,6 @@ def counters() -> dict:
     out["casts"] = 0
     out["fuel_update"] = int(_FUEL.get("update", 0))
     out["fuel_price"] = int(_FUEL.get("price", 0))
-    out["fuel_n"] = int(_FUEL.get("n", 0))
     return out
 
 

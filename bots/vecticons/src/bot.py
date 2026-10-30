@@ -468,7 +468,7 @@ class Bot:
             f"f3b: {short} zones={c['zones']} awake={c['awake']} "
             f"deaths={c['deaths']} holds={c['holds']} "
             f"priced={c['priced']} r={rnd} "
-            f"fu={c['fuel_update']} fp={c['fuel_price']} fn={c['fuel_n']}",
+            f"fu={c['fuel_update']} fp={c['fuel_price']}",
             flush=True,
         )
 
@@ -538,8 +538,7 @@ class Bot:
         #     respawn -> walk-back-alone -> die loop loses its road.
         _f0 = None
         try:
-            if transit.probe_due(self):
-                _f0 = int(cambc.fuel_remaining())
+            _f0 = int(cambc.fuel_remaining())
         except Exception:
             _f0 = None
         try:
@@ -549,7 +548,6 @@ class Bot:
         if _f0 is not None:
             try:
                 transit._FUEL["update"] += _f0 - int(cambc.fuel_remaining())
-                transit._FUEL["n"] = int(transit._FUEL.get("n", 0)) + 1
             except Exception:
                 pass
         try:

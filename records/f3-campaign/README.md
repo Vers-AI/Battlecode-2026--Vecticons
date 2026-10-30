@@ -56,6 +56,17 @@ bundles' team-a.stdout, last line per champion, summed)
 * `fuel.md` — the fuel line: the measurement, the attribution and the
   comparison against the gate.
 * `gatecheck.md` — the gate check output.
+* `tuning-attempt-v2/` — the MEASURED fuel-tuning attempt (the fuel
+  probes sampling every 25th turn instead of every turn, commit 120ee79,
+  reverted): 55-15 / 41,065 gems / **fuel 57,736** / 0 faults. It was
+  rejected because its record (55-15) is BELOW the 56-14 gate: sampling
+  the probes gives each turn ~29,000 more fuel, the turns the engine used
+  to cut short now complete, and 28 of the 70 maps come out differently.
+  The shipped state is the `f3-campaign` state above - the code the
+  campaign measured. The v2 numbers are kept because they bound the
+  instrumentation's share of the fuel line (~3,400 exhaustions, ~5%) and
+  they measure the transit layer's real cost (~950 fuel/turn, 0.04% of
+  the turn budget).
 
 The raw per-map stats files and run logs stay under `results/f3-campaign/`
 in the worktree (the repo keeps `results/` gitignored, like every other
