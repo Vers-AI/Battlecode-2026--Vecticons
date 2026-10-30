@@ -754,6 +754,16 @@ def _bank_candidates(snap, field) -> list:
     the altar's score; the scan stops as soon as the bound cannot beat the
     best score found so far. The altars that are scored are the ones that
     can still win the argmax, and the honest distance decides between them.
+
+    F6: an ENEMY-LOCKED altar is no longer filtered out - it stays a
+    candidate whose cost carries the BREAK COST (the engine constant
+    ALTAR_LOCK_HITS, five basic attacks) on top of the walk and the
+    tribute channel: base x discount ** (d + hits + channel) x mod. The
+    lock-break is PRICED, not gated: it competes in the SAME argmax, so a
+    multi-altar map still routes around the lock (an open altar is
+    cheaper in discounted turns) while a single-altar map breaks the
+    lock instead of idling. The score bound carries the same +hits, so
+    the early-break stays correct.
     """
     _ensure_resolved()
     if snap.gems < config.BANK_THRESHOLD:
@@ -769,12 +779,19 @@ def _bank_candidates(snap, field) -> list:
     density = getattr(snap, "region_sightings", {}) or {}
     regions = getattr(snap, "altar_regions", None) or {}
     px, py = snap.origin_xy
+    try:
+        lock_hits = max(1, int(config.ALTAR_LOCK_HITS))
+    except Exception:
+        lock_hits = 5
     # One pass over the altars: the modifiers and the score bound are
     # plain-int / float arithmetic (no engine call).
     entries = []
     for ax, ay in coords:
-        if _altar_locked(snap, (ax, ay)):
-            continue
+        # F6: the lock test is the one bitboard read per altar that was
+        # already here; the lock no longer removes the altar from the
+        # argmax, it only makes the altar more expensive.
+        locked = _altar_locked(snap, (ax, ay))
+        break_turns = lock_hits if locked else 0
         dx = int(ax) - px
         if dx < 0:
             dx = -dx
@@ -784,10 +801,12 @@ def _bank_candidates(snap, field) -> list:
         cheap = dx if dx > dy else dy
         mod = 1.0
         note = ""
+        if locked:
+            note = f" lockbreak+{break_turns}"
         try:
             if (int(ax), int(ay)) in contested:
                 mod *= float(config.BANK_CONTEST_PENALTY)
-                note = " contest"
+                note += " contest"
             # S2.3 FUEL: the altar's region id is STATIC
             # (observation.altar_regions) - the score used to call
             # intelligence.region_of() per altar per turn.
@@ -804,14 +823,14 @@ def _bank_candidates(snap, field) -> list:
                 note += f" risk={risk}"
         except Exception:
             pass
-        upper = base * (discount ** max(0, cheap + channel)) * mod
-        entries.append((upper, int(ax), int(ay), mod, note))
+        upper = base * (discount ** max(0, cheap + channel + break_turns)) * mod
+        entries.append((upper, int(ax), int(ay), mod, note, break_turns))
     if not entries:
         return []
     entries.sort(key=lambda item: -item[0])
     cands = []
     best = 0.0
-    for upper, ax, ay, mod, note in entries:
+    for upper, ax, ay, mod, note, break_turns in entries:
         if upper <= best:
             # Every remaining altar is bounded below this one, so none of
             # them can win the argmax: no field read, no candidate.
@@ -819,13 +838,17 @@ def _bank_candidates(snap, field) -> list:
         d, tile = fielding.altar_distance(snap, field, ax, ay)
         if d is None:
             continue  # unreachable: scores 0 by arithmetic
-        raw = base * (discount ** max(0, d + channel))
+        raw = base * (discount ** max(0, d + channel + break_turns))
         score = raw * mod
         # B1: banking under attack is worth what we bank, not what we
         # carry - the trip ends when we are dead on it. The gross already
         # IS the carried bag (discounted by the trip), so the bag is not
         # credited again in the success branch (keep_bag=False).
-        score = _threat_adjust(snap, d + channel, score, keep_bag=False)
+        # F6: the lock-break adds its five attack-turns to the exposure
+        # window too - the banker stands next to the altar while it
+        # hammers the lock, so the threat term prices the same exposure.
+        score = _threat_adjust(snap, d + channel + break_turns, score,
+                                keep_bag=False)
         if score <= 0.0:
             continue
         cands.append(

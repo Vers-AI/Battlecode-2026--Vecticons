@@ -564,7 +564,7 @@ def _altar_vec(altar):
     return altar
 
 
-def submit_gems_to_altar(altar, snap=None) -> bool:
+def submit_gems_to_altar(altar, snap=None, break_lock: bool = False) -> bool:
     """Start a tribute channel at altar (if unlocked, in range, carrying gems).
 
     S2.3: `me.submit_gems` RAISES (it has no status return): an altar the
@@ -581,6 +581,19 @@ def submit_gems_to_altar(altar, snap=None) -> bool:
     owner's team to tribute"). The frozen baseline keeps its historical
     team-agnostic test.
 
+    F6 (`break_lock=True`): the lock-break path. The engine converts a
+    tribute attempt against a locked altar into attacks on the lock
+    (GameRules:242 "Attempts to tribute against a locked altar are
+    implicitly converted to auto attacks against the altar lock"), so the
+    submit call IS the lock hit - no separate attack action is needed.
+    Probed on engine 4.0.0 (2026-10-30, /tmp/opencode/f6probe): against an
+    ENEMY lock the submit returned OK, the lock's hits_remaining went
+    5 -> 4 -> 3 -> 2 -> 1 -> gone over five attempts, and
+    is_submitting_gems() stayed False (no tribute channel was started).
+    The lock guard below is therefore SKIPPED when the caller wants the
+    break: the guard exists to avoid a pointless submit, not to forbid
+    the engine's own conversion.
+
     `altar` may be the Vec2 tile or the (x, y) integer tuple the utility
     layer caches (S2.3 fuel: no coordinate read out of the engine).
     """
@@ -595,7 +608,7 @@ def submit_gems_to_altar(altar, snap=None) -> bool:
         return False
     if _distance(me.position(), altar) > config.TRIBUTE_RANGE:
         return False
-    if snap is not None and bool(getattr(snap, "s23_cache", False)):
+    if not break_lock and snap is not None and bool(getattr(snap, "s23_cache", False)):
         if _altar_locked_by_enemy(snap, altar):
             return False
     try:
