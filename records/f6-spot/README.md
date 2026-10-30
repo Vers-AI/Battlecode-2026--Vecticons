@@ -93,6 +93,26 @@ the locker probe:
 
 The full extract is in `lockbreak.log`.
 
+## The before/after controls (the headline)
+
+Measured against the **F3 baseline binary** on the same maps with the
+same probes:
+
+| map | altars | enemy lock | F3 baseline | F6 |
+|---|---|---|---|---|
+| **02treasure_box** | 1 | the only one | **0 gems** — the inert economy | **1,006 gems, W** |
+| 01yellow_brick_road | 10 | one | 51 gems, **0 breaks** | 88 gems, **0 breaks** — routed around, unchanged |
+| 01starfish | 2 | both | 842 gems (routed) | 880 gems (broke both) |
+| 01starfish | 2 | the near one | 842 gems (routed) | 749 gems (broke the near lock) |
+
+The evidence class is fixed and the multi-altar route-around control
+holds on the 10-altar map. The 2-altar map is the boundary case and is
+reported as it measured: with a `TIME_DISCOUNT` of 0.99 the break costs
+~5% of the score, so the break wins whenever the open alternative is
+more than ~5 honest path turns away — the 3-tile gap on `01starfish` is
+not 5 path turns. Full detail, including the probes' construction, in
+`controls.md`.
+
 ## The caveat that matters for the campaign
 
 This engine's match is bit-deterministic only for an **identical binary**.
@@ -114,6 +134,8 @@ reported honestly rather than chased by weakening the bot.
 * `aggregate.json` — the machine-readable spot-check record.
 * `table.md` — the per-map table.
 * `variance.md` — the A/B variance measurement (the baseline-vs-F6 table).
+* `controls.md` — the before/after locker-probe controls (the single-altar
+  evidence class and the multi-altar route-around controls).
 * `lockbreak.log` — the lock-break evidence from the locker-probe match.
 * `*.run.log` — the harness stdout of the three map runs.
 
