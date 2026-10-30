@@ -1,0 +1,17 @@
+campaign: f6-campaign (70 maps)
+reference: 58-12 / 41255 gems / fuel 61164 / 0 faults
+
+[PASS] record: 58-12 vs 58-12
+[FAIL] gems: 40839 vs 41255 (-416)
+[PASS] botFaults: 0 ours / 0 opponent
+[PASS] ability casts > 0: 8354 casts
+[PASS] fuel (feature cost): 59746 vs 61164 (-1418, 0.98x) - REPORTED, see the fuel section
+
+controls:
+  [PASS] 01yellow_brick_road: 415 gems (need >= 100), W
+  [PASS] 01elk_arena: 72 gems (need >= 72), W
+  [INFO] 01boss_battle: 60 deaths, 0 gems, W (courier deaths are the deaths at the sealed door - see the per-map table)
+  [PASS] 00gem_fields: ran clean, 1039 gems, W
+
+F3b counters: {"zones": 56, "awake": 14437, "deaths": 1455, "holds": 357, "priced": 36559, "fuel_update": 8362834771, "fuel_price": 1902668143, "champions": 310}
+F3a counters: {"casts": 8354, "damage": 2625, "aoe": 4153, "cc": 0, "heal": 42, "shield": 386, "dash": 167, "reset": 981, "champions": 310}

@@ -722,6 +722,14 @@ ALTAR_LOCK_COST: int = 10
 # The placement radius of the lock around the altar (GameRules: "within
 # two tiles").
 ALTAR_LOCK_RADIUS: int = 2
+# F6: the number of basic attacks that clear an altar lock. This is an
+# ENGINE constant (cambc.constants.ALTAR_LOCK_HITS; GameRules:236 "It
+# takes 5 basic attacks to clear the lock"), resolved in resolve() - the
+# default below is the documented value and the engine's own number
+# replaces it on the first resolve(). The bank candidate uses it as the
+# PRICED cost of a lock-break: the turns the banker spends hammering the
+# lock instead of walking to an open altar.
+ALTAR_LOCK_HITS: int = 5
 # The denial value of a lock (gem-equivalents): it removes an altar from
 # the enemy's banking options for as long as they do not clear it. It is
 # only worth anything when the intel shows ENEMY TRAFFIC at an altar -
@@ -800,13 +808,17 @@ def resolve() -> None:
     """Resolve cached engine constants exactly once. Safe to call repeatedly."""
     global _resolved, TRIBUTE_RANGE, CAPTURE_ROUNDS, RESPAWN_ROUNDS
     global KILL_GOLD_ON_DEATH, WARD_VISION_RADIUS, WARD_PLACEMENT_RADIUS
-    global WARD_COOLDOWN_ROUNDS
+    global WARD_COOLDOWN_ROUNDS, ALTAR_LOCK_HITS
     if _resolved:
         return
     import cambc.constants as _constants
     TRIBUTE_RANGE = int(_constants.SUBMIT_GEMS_RANGE)
     CAPTURE_ROUNDS = int(_constants.CAPTURE_TIME)
     RESPAWN_ROUNDS = int(_constants.RESPAWN_TIME)
+    try:
+        ALTAR_LOCK_HITS = int(_constants.ALTAR_LOCK_HITS)
+    except Exception:
+        pass
     try:
         KILL_GOLD_ON_DEATH = int(_constants.KILL_GOLD)
     except Exception:

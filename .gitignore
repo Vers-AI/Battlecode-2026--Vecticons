@@ -32,3 +32,7 @@ records/*
 !records/f3a-spot/**
 !records/f3-campaign/
 !records/f3-campaign/**
+!records/f6-spot/
+!records/f6-spot/**
+!records/f6-campaign/
+!records/f6-campaign/**

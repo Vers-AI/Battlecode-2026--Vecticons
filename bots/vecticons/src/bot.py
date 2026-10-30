@@ -161,6 +161,12 @@ class Bot:
         # S2.2 evidence: rate limit for the contest-flag bank prints
         # (regular stdout so it survives --release; bounded fuel cost).
         self.contest_logs = 0
+        # F6 evidence: the lock-break hits this champion landed on an
+        # enemy altar lock, and the rate limit for the print. The counter
+        # is per champion (each champion runs in its own process with its
+        # own Bot instance).
+        self.lockbreaks = 0
+        self.lockbreak_logs = 0
         # S2.3: the champion's OWN claim memory (group handle -> the round
         # the group's reward was claimed). A group whose reward was taken
         # has no live monster until it respawns, so it must not be farmed
@@ -873,7 +879,30 @@ class Bot:
                         )
                     except Exception:
                         pass
-                if execution.submit_gems_to_altar(target, snap):
+                # F6: the argmax chose the LOCK-BREAK (the altar is locked
+                # by the enemy and the break still wins on score). The
+                # engine converts a tribute attempt against a locked altar
+                # into an attack on the lock (GameRules:242), so the submit
+                # call IS the lock hit - the banker walks to the altar and
+                # hammers the lock, five attacks, then tributes normally.
+                if "lockbreak" in (cand[3] or ""):
+                    if execution.submit_gems_to_altar(target, snap,
+                                                      break_lock=True):
+                        self.lockbreaks += 1
+                        if self.lockbreak_logs < 40:
+                            self.lockbreak_logs += 1
+                            try:
+                                print(
+                                    f"f6: lockbreak hit #{self.lockbreaks} "
+                                    f"{cand[3]} "
+                                    f"altar=({target[0]},{target[1]}) "
+                                    f"r={int(cambc.round_number())}",
+                                    flush=True,
+                                )
+                            except Exception:
+                                pass
+                        return
+                elif execution.submit_gems_to_altar(target, snap):
                     return
                 if goal is not None and execution.move_towards_goal(
                     snap, goal, kind="scoring"

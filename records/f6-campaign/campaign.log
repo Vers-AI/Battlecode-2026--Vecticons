@@ -1,0 +1,76 @@
+[f6-campaign] 70 maps | bot-a=bots/vecticons | concurrency=6 | release=True
+[f6-campaign] (1/70) 00breadcrumbs: ok (43.4s) | f1 hits=1645 misses=0 prunes=40 commits=6 boosts=0 | f3a casts=111
+[f6-campaign] (2/70) 00collision: ok (44.9s) | f1 hits=4318 misses=0 prunes=366 commits=20 boosts=66 | f3a casts=186
+[f6-campaign] (3/70) 00anvil: ok (46.1s) | f1 hits=4258 misses=0 prunes=230 commits=95 boosts=67 | f3a casts=178
+[f6-campaign] (4/70) 00corners: ok (50.8s) | f1 hits=3919 misses=0 prunes=268 commits=19 boosts=133 | f3a casts=148
+[f6-campaign] (5/70) 00contest: ok (52.2s) | f1 hits=6396 misses=0 prunes=0 commits=0 boosts=0 | f3a casts=156
+[f6-campaign] (6/70) 00ambush: ok (52.3s) | f1 hits=719 misses=0 prunes=0 commits=1 boosts=0 | f3a casts=94
+[f6-campaign] (7/70) 00crater: ok (47.3s) | f1 hits=12456 misses=0 prunes=118 commits=45 boosts=156 | f3a casts=177
+[f6-campaign] (8/70) 00eight: ok (44.7s) | f1 hits=8172 misses=0 prunes=19 commits=76 boosts=95 | f3a casts=178
+[f6-campaign] (9/70) 00dunes: ok (47.1s) | f1 hits=5264 misses=0 prunes=87 commits=44 boosts=89 | f3a casts=109
+[f6-campaign] (10/70) 00fragment: ok (39.9s) | f1 hits=5091 misses=0 prunes=68 commits=9 boosts=13 | f3a casts=209
+[f6-campaign] (11/70) 00elkring: ok (47.3s) | f1 hits=3676 misses=0 prunes=62 commits=38 boosts=23 | f3a casts=140
+[f6-campaign] (12/70) 00expanse: ok (49.8s) | f1 hits=1218 misses=0 prunes=4 commits=1 boosts=0 | f3a casts=86
+[f6-campaign] (13/70) 00gemfight: ok (39.3s) | f1 hits=4004 misses=0 prunes=28 commits=15 boosts=3 | f3a casts=74
+[f6-campaign] (14/70) 00gem_fields: ok (43.5s) | f1 hits=3246 misses=0 prunes=1 commits=7 boosts=5 | f3a casts=77
+[f6-campaign] (15/70) 00galaxy: ok (50.2s) | f1 hits=4892 misses=0 prunes=332 commits=39 boosts=17 | f3a casts=97
+[f6-campaign] (16/70) 00great_wall: ok (50.3s) | f1 hits=0 misses=0 prunes=0 commits=0 boosts=0 | f3a casts=45
+[f6-campaign] (17/70) 00interlock: ok (51.0s) | f1 hits=5588 misses=0 prunes=6 commits=50 boosts=93 | f3a casts=185
+[f6-campaign] (18/70) 00lanes: ok (51.4s) | f1 hits=501 misses=0 prunes=9 commits=2 boosts=1 | f3a casts=148
+[f6-campaign] (19/70) 00lost_world: ok (56.4s) | f1 hits=18 misses=0 prunes=0 commits=0 boosts=0 | f3a casts=40
+[f6-campaign] (20/70) 00monolith: ok (55.4s) | f1 hits=2662 misses=0 prunes=28 commits=33 boosts=32 | f3a casts=185
+[f6-campaign] (21/70) 00packs: ok (47.3s) | f1 hits=3643 misses=0 prunes=11 commits=21 boosts=23 | f3a casts=182
+[f6-campaign] (22/70) 00oasis: ok (53.8s) | f1 hits=5357 misses=0 prunes=19 commits=23 boosts=63 | f3a casts=167
+[f6-campaign] (23/70) 00quadrants: ok (44.9s) | f1 hits=516 misses=0 prunes=2 commits=0 boosts=0 | f3a casts=103
+[f6-campaign] (24/70) 00pilgrimage: ok (58.4s) | f1 hits=268 misses=0 prunes=0 commits=0 boosts=0 | f3a casts=114
+[f6-campaign] (25/70) 00quarry: ok (41.6s) | f1 hits=4189 misses=0 prunes=8 commits=2 boosts=4 | f3a casts=122
+[f6-campaign] (26/70) 00reverse_spiral: ok (44.7s) | f1 hits=6085 misses=0 prunes=36 commits=11 boosts=5 | f3a casts=123
+[f6-campaign] (27/70) 00ribs: ok (49.3s) | f1 hits=0 misses=0 prunes=0 commits=0 boosts=0 | f3a casts=76
+[f6-campaign] (28/70) 00road_of_riches: ok (45.9s) | f1 hits=12 misses=0 prunes=0 commits=0 boosts=0 | f3a casts=70
+[f6-campaign] (29/70) 00rows: ok (48.9s) | f1 hits=45 misses=0 prunes=0 commits=0 boosts=0 | f3a casts=110
+[f6-campaign] (30/70) 00rushbait_v2: ok (44.5s) | f1 hits=38321 misses=0 prunes=0 commits=0 boosts=0 | f3a casts=219
+[f6-campaign] (31/70) 00split: ok (47.5s) | f1 hits=211 misses=0 prunes=0 commits=3 boosts=0 | f3a casts=102
+[f6-campaign] (32/70) 00swirl: ok (44.1s) | f1 hits=3039 misses=0 prunes=15 commits=31 boosts=14 | f3a casts=168
+[f6-campaign] (33/70) 00stampede: ok (50.9s) | f1 hits=5400 misses=0 prunes=0 commits=0 boosts=0 | f3a casts=130
+[f6-campaign] (34/70) 00the_line: ok (46.7s) | f1 hits=40857 misses=0 prunes=35 commits=0 boosts=0 | f3a casts=17
+[f6-campaign] (35/70) 00vault: ok (46.5s) | f1 hits=5414 misses=0 prunes=48 commits=0 boosts=0 | f3a casts=12
+[f6-campaign] (36/70) 01big_world: ok (46.6s) | f1 hits=255 misses=0 prunes=0 commits=3 boosts=4 | f3a casts=33
+[f6-campaign] (37/70) 01broken_curve: ok (39.3s) | f1 hits=329 misses=0 prunes=0 commits=1 boosts=0 | f3a casts=183
+[f6-campaign] (38/70) 01boss_battle: ok (47.0s) | f1 hits=2678 misses=0 prunes=15 commits=0 boosts=0 | f3a casts=84
+[f6-campaign] (39/70) 01corridors: ok (46.0s) | f1 hits=2309 misses=0 prunes=27 commits=2 boosts=0 | f3a casts=129
+[f6-campaign] (40/70) 01concentrated_wealth: ok (48.9s) | f1 hits=583 misses=0 prunes=14 commits=3 boosts=1 | f3a casts=108
+[f6-campaign] (41/70) 01fracture: ok (45.5s) | f1 hits=115 misses=0 prunes=2 commits=0 boosts=0 | f3a casts=97
+[f6-campaign] (42/70) 01elk_arena: ok (52.4s) | f1 hits=1380 misses=0 prunes=0 commits=0 boosts=0 | f3a casts=179
+[f6-campaign] (43/70) 01gold_rush: ok (40.1s) | f1 hits=3087 misses=0 prunes=1 commits=1 boosts=0 | f3a casts=145
+[f6-campaign] (44/70) 01hooks: ok (45.5s) | f1 hits=6548 misses=0 prunes=37 commits=22 boosts=36 | f3a casts=204
+[f6-campaign] (45/70) 01shortcut: ok (47.1s) | f1 hits=2169 misses=0 prunes=1 commits=82 boosts=13 | f3a casts=81
+[f6-campaign] (46/70) 01islands: ok (52.8s) | f1 hits=5166 misses=0 prunes=0 commits=0 boosts=0 | f3a casts=46
+[f6-campaign] (47/70) 01starfish: ok (49.8s) | f1 hits=1721 misses=0 prunes=0 commits=2 boosts=0 | f3a casts=149
+[f6-campaign] (48/70) 01starvation: ok (51.7s) | f1 hits=0 misses=0 prunes=0 commits=0 boosts=0 | f3a casts=80
+[f6-campaign] (49/70) 01the_farm: ok (41.2s) | f1 hits=1474 misses=0 prunes=2 commits=2 boosts=1 | f3a casts=68
+[f6-campaign] (50/70) 01yellow_brick_road: ok (48.1s) | f1 hits=162 misses=0 prunes=0 commits=0 boosts=0 | f3a casts=113
+[f6-campaign] (51/70) 02arena: ok (38.7s) | f1 hits=1962 misses=0 prunes=48 commits=26 boosts=5 | f3a casts=182
+[f6-campaign] (52/70) 02crossing: ok (44.1s) | f1 hits=1981 misses=0 prunes=32 commits=16 boosts=3 | f3a casts=128
+[f6-campaign] (53/70) 02cuts: ok (48.5s) | f1 hits=859 misses=0 prunes=4 commits=11 boosts=3 | f3a casts=117
+[f6-campaign] (54/70) 02famine: ok (52.6s) | f1 hits=2193 misses=0 prunes=0 commits=4 boosts=10 | f3a casts=115
+[f6-campaign] (55/70) 02fields: ok (49.4s) | f1 hits=4204 misses=0 prunes=9 commits=97 boosts=50 | f3a casts=119
+[f6-campaign] (56/70) 02geodes: ok (48.0s) | f1 hits=1387 misses=0 prunes=1 commits=15 boosts=21 | f3a casts=134
+[f6-campaign] (57/70) 02gift_wrapping: ok (45.6s) | f1 hits=315 misses=0 prunes=0 commits=26 boosts=8 | f3a casts=0
+[f6-campaign] (58/70) 02guardians: ok (45.0s) | f1 hits=168 misses=0 prunes=0 commits=2 boosts=2 | f3a casts=139
+[f6-campaign] (59/70) 02stalactites: ok (44.5s) | f1 hits=24787 misses=0 prunes=0 commits=4 boosts=14 | f3a casts=137
+[f6-campaign] (60/70) 02harvest: ok (54.4s) | f1 hits=15 misses=0 prunes=0 commits=0 boosts=0 | f3a casts=140
+[f6-campaign] (61/70) 02tangle: ok (48.3s) | f1 hits=0 misses=0 prunes=0 commits=0 boosts=0 | f3a casts=64
+[f6-campaign] (62/70) 02the_pack: ok (41.7s) | f1 hits=2055 misses=0 prunes=0 commits=32 boosts=18 | f3a casts=128
+[f6-campaign] (63/70) 02the_pond: ok (41.8s) | f1 hits=1794 misses=0 prunes=82 commits=4 boosts=8 | f3a casts=147
+[f6-campaign] (64/70) 02treasure_box: ok (50.3s) | f1 hits=17238 misses=0 prunes=45 commits=380 boosts=14 | f3a casts=148
+[f6-campaign] (65/70) adgato_gemcombat1: ok (36.1s) | f1 hits=5974 misses=0 prunes=64 commits=84 boosts=102 | f3a casts=117
+[f6-campaign] (66/70) adgato_gemcombat2: ok (40.7s) | f1 hits=3938 misses=0 prunes=74 commits=9 boosts=28 | f3a casts=93
+[f6-campaign] (67/70) adgato_gemcombat3: ok (35.9s) | f1 hits=2151 misses=0 prunes=24 commits=19 boosts=7 | f3a casts=76
+[f6-campaign] (68/70) 02uncharted_lands: ok (48.4s) | f1 hits=3528 misses=0 prunes=23 commits=41 boosts=15 | f3a casts=159
+[f6-campaign] (69/70) adgato_gemcombat4: ok (36.3s) | f1 hits=6943 misses=0 prunes=4 commits=105 boosts=141 | f3a casts=113
+[f6-campaign] (70/70) adgato_gemcombat5: ok (25.1s) | f1 hits=2054 misses=0 prunes=1 commits=15 boosts=17 | f3a casts=61
+[f6-campaign] DONE 58-12 | 40839 gems | fuel 59746 | wards 29164 | buys 1812 | consumables 240 | 0 faults | 9.2 min
+[f6-campaign] THREAT CACHE hits=302922 misses=0 | EV PRUNES=2350 | CHASE COMMITS=1599 (boosts=1423)
+[f6-campaign] ABILITY CASTS=8354 (dmg=2625 aoe=4153 cc=0 heal=42 shield=386 dash=167 reset=981 champions=310)
+[f6-campaign] TRANSIT zones=56 awake=14437 deaths=1455 holds=357 priced=36559 champions=310
+[f6-campaign] TRANSIT FUEL update=8362834771 price=1902668143

@@ -1,0 +1,69 @@
+f6: lock-break evidence — our bot vs. the locker probe on the single-altar map
+================================================================================
+
+Instrument: cambc 4.0.0 / engine 2.0.0, --release, map 02treasure_box.
+Team A = bots/vecticons (the F6 build, commit aed8ca5).
+Team B = a throwaway probe bot that locks the altar nearest the enemy spawn
+         (/tmp/opencode/f6probe/locker/src/bot.py — NOT in the repo).
+
+Replay bundle: /tmp/opencode/f6probe/our-vs-locker/vecticons-vs-locker-1793360120073.repl26a
+Extract: the "f6: lockbreak" and "s22: bank contest flag" lines of team-a.stdout.
+
+--------------------------------------------------------------------------------
+the raw lines
+--------------------------------------------------------------------------------
+
+s22: bank contest flag: d=1 g=61 lockbreak+5 contest exp=90 altar=(17,17)
+f6: lockbreak hit #1 altar=(17,17) r=547
+f6: lockbreak hit #2 altar=(17,17) r=549
+f6: lockbreak hit #1 altar=(17,17) r=550
+f6: lockbreak hit #3 altar=(17,17) r=551
+f6: lockbreak hit #2 altar=(17,17) r=552
+s22: bank contest flag: d=5 g=61 contest altar=(17,17)
+s22: bank contest flag: d=4 g=61 lockbreak+5 contest exp=90 altar=(17,17)
+f6: lockbreak hit #1 altar=(17,17) r=721
+f6: lockbreak hit #2 altar=(17,17) r=723
+f6: lockbreak hit #1 altar=(17,17) r=723
+f6: lockbreak hit #3 altar=(17,17) r=725
+f6: lockbreak hit #2 altar=(17,17) r=725
+
+--------------------------------------------------------------------------------
+what the lines show
+--------------------------------------------------------------------------------
+
+* The altar at (17,17) is the ONLY altar on the map. It is locked by the
+  enemy. Before F6 the banker had no bank candidate at all and the
+  economy went inert on this map.
+* "lockbreak+5" on the contest-flag line is the PRICED break cost: the
+  candidate's score carried the engine constant ALTAR_LOCK_HITS (5) on top
+  of the walk (d) and the tribute channel (exp=90). The lock did not gate
+  the candidate out — it made it more expensive, and the argmax still
+  chose it because there was nothing else to choose.
+* 10 "f6: lockbreak hit" lines in total, in two rounds of 5 (r=547..552
+  and r=721..725). Five hits per lock is exactly ALTAR_LOCK_HITS: the
+  engine converts the tribute attempt into an attack on the lock, the
+  lock's hits_remaining goes 5 -> 4 -> 3 -> 2 -> 1 -> gone, and on the
+  sixth attempt the submit becomes a real tribute.
+* The mid-sequence line "s22: bank contest flag: d=5 g=61 contest
+  altar=(17,17)" (no "lockbreak+5") is the turn the lock was already
+  gone: the candidate became an ordinary open-altar bank again, at the
+  same altar.
+* The per-champion numbering (#1, #2, #3) is the per-champion counter:
+  each champion runs in its own process with its own Bot instance, so
+  two champions each landed several of the five hits.
+
+--------------------------------------------------------------------------------
+why there is no separate "attack the lock" action
+--------------------------------------------------------------------------------
+
+Probed directly against the engine (the /tmp/opencode/f6probe/attacker
+probe, replay9): me.submit_gems(altar) against an ENEMY-locked altar
+returns OK and is auto-converted into a lock attack — hits_remaining went
+5 -> 4 -> 3 -> 2 -> 1 -> gone over five attempts and is_submitting_gems()
+stayed False the whole time (no tribute channel was started). A
+following me.attack(lock) raised Error(41, 'Attack already used.'),
+because the conversion had already consumed that turn's attack.
+
+So the action path is: submit with the enemy-lock guard bypassed
+(execution.submit_gems_to_altar(..., break_lock=True)). The engine does
+the conversion. No new action was added to the bot.
