@@ -57,6 +57,7 @@ import cambc
 from cambc import game_map
 
 import config
+from managers import abilities
 from managers import execution
 from managers import intelligence
 from managers import observation
@@ -91,6 +92,22 @@ def _best_excluding(candidates, kind: str):
         except Exception:
             continue
     return best
+
+
+def _camp_caster(snap):
+    """The F3a camp-cast hook for execution.attack_first_in_range.
+
+    A damage spell at the camp we are already hitting shortens the clear
+    (the camp-clear time estimate prices the burst, so the two agree).
+    The cast is a separate turn resource from the basic attack, so both
+    land in the same turn.
+    """
+    def _cast(camp):
+        try:
+            abilities.camp_cast(snap, camp)
+        except Exception:
+            pass
+    return _cast
 
 
 def _standing_on_goals(goal, position) -> bool:
@@ -365,7 +382,82 @@ class Bot:
             flush=True,
         )
 
+    def ability_evidence(self):
+        """Print the F3a ability-layer counters (rate limited).
+
+            f3a: <champion> casts=.. dmg=.. aoe=.. cc=.. heal=.. shield=..
+                 dash=.. reset=.. r=..
+
+        scripts/run_pool.py reads the LAST such line per champion out of
+        the replay bundle's team-a.stdout and sums it into the campaign
+        totals - the "ability casts > 0" gate is measured from this line.
+        """
+        try:
+            rnd = int(cambc.round_number())
+        except Exception:
+            return
+        if not (rnd <= 2 or rnd % 100 == 0):
+            # A cast happened since the last line: print again, so the
+            # campaign's "last line per champion" harvest reads the final
+            # totals even on a match that ends before the next tick.
+            try:
+                if not abilities.evidence_dirty():
+                    return
+            except Exception:
+                return
+        try:
+            short = observation.champion_short_name(int(cambc.me().champion_name()))
+        except Exception:
+            short = "?"
+        try:
+            c = abilities.counters()
+        except Exception:
+            return
+        by = c.get("by_kind", {}) or {}
+        print(
+            f"f3a: {short} casts={c['casts']} "
+            f"dmg={by.get('damage', 0)} aoe={by.get('aoe', 0)} "
+            f"cc={by.get('cc', 0)} heal={by.get('heal', 0)} "
+            f"shield={by.get('shield', 0)} dash={by.get('dash', 0)} "
+            f"reset={by.get('reset', 0)} r={rnd}",
+            flush=True,
+        )
+        try:
+            abilities.clear_evidence_dirty()
+        except Exception:
+            pass
+
     def play_turn(self):
+        """The turn entry point (F3a: a fuel probe around the body).
+
+        The probe reads the fuel at the start of every 25th turn and
+        prints the delta at the end of it, so it costs two engine reads
+        per 25 turns instead of two per turn. FUEL: the probe must not
+        eat the turn's fuel budget - the campaign gate compares the
+        fuel-exhaustion count against the F1 baseline.
+
+        The probe NEVER swallows an exception from the body: a crash has
+        to reach the engine as a bot fault, or the campaign's "0 faults"
+        gate would be counting a number the bot made up.
+        """
+        probe = None
+        try:
+            if int(cambc.round_number()) % 25 == 0:
+                probe = int(cambc.fuel_remaining())
+        except Exception:
+            probe = None
+        try:
+            self._play_turn_body()
+        finally:
+            if probe is not None:
+                try:
+                    used = probe - int(cambc.fuel_remaining())
+                    print(f'fuelprobe: r={int(cambc.round_number())} '
+                          f'used={used}', flush=True)
+                except Exception:
+                    pass
+
+    def _play_turn_body(self):
         # First-turn bookkeeping.
         if self.chosen_stat is None:
             try:
@@ -578,6 +670,13 @@ class Bot:
         except Exception:
             pass
 
+        # F3a: the ability-layer evidence line (the campaign's "ability
+        # casts > 0" gate reads these counters off the stdout).
+        try:
+            self.ability_evidence()
+        except Exception:
+            pass
+
         # Diagnostic - log every cand.kind for first few rounds.
         try:
             if cambc.round_number() <= 20:
@@ -705,6 +804,24 @@ class Bot:
                     pos = target.position()
                 except Exception:
                     pos = None
+                # F3a: the ESCAPE DASH - a dash breaks contact in one
+                # turn where a walk only buys one tile. It fires only when
+                # it takes us out of the threat's reach, so the 8-round
+                # cooldown is not spent on a wasted step.
+                try:
+                    if pos is not None:
+                        if abilities.dash_escape(snap, target,
+                                                 int(pos.x), int(pos.y)):
+                            return
+                except Exception:
+                    pass
+                # F3a: no dash - the defensive cast instead (a heal or a
+                # shield). It is compatible with walking, so the step
+                # away below still happens.
+                try:
+                    abilities.defensive_cast(snap)
+                except Exception:
+                    pass
                 if execution.move_away_from(pos):
                     return
                 # B1: the escape step FAILED - we are cornered (the probe
@@ -726,7 +843,22 @@ class Bot:
                 try:
                     atk = execution.our_attack_tiles(snap)
                     if atk is not None and atk.is_set(target.position()):
+                        # F3a: the ability layer in the fight action.
+                        #
+                        # The basic attack comes FIRST: a cast does not
+                        # consume the attack allowance, so the spell still
+                        # lands in the same turn, and the ATTACK RESET
+                        # must be cast after an attack (the engine refuses
+                        # a reset while an attack is still available).
                         me.attack(target)
+                        pos = target.position()
+                        cast = abilities.combat_cast(
+                            snap, target, int(pos.x), int(pos.y)
+                        )
+                        if cast == "reset":
+                            # The reset restored the attack allowance:
+                            # the champion strikes a second time.
+                            me.attack(target)
                         return
                 except Exception:
                     pass
@@ -744,7 +876,31 @@ class Bot:
                         atk = execution.our_attack_tiles(snap)
                         if atk is not None and atk.is_set(target.position()):
                             me.attack(target)
+                            pos = target.position()
+                            cast = abilities.combat_cast(
+                                snap, target, int(pos.x), int(pos.y)
+                            )
+                            if cast == "reset":
+                                me.attack(target)
                             return
+                except Exception:
+                    pass
+                # F3a: the ENGAGE DASH - one turn of closing instead of
+                # one tile, and the landing effect may hit the target.
+                try:
+                    pos = target.position()
+                    if abilities.dash_engage(snap, target,
+                                             int(pos.x), int(pos.y)):
+                        return
+                except Exception:
+                    pass
+                # F3a: an offensive cast that does not cost us the walk
+                # (or that ends the engagement outright).
+                try:
+                    pos = target.position()
+                    if abilities.offensive_cast(snap, target, int(pos.x),
+                                                int(pos.y), allow_walk=False):
+                        return
                 except Exception:
                     pass
                 if goal is not None and execution.move_towards_goal(
@@ -792,8 +948,17 @@ class Bot:
             # attack any visible camp in our attack tiles before and after the
             # move (killable-filtered via snap: never wake a Monolith's group).
             if kind == "farm":
+                # F3a: the defensive cast first (a heal or a shield while
+                # a hostile champion is on us - it is compatible with
+                # walking, so it costs no step), then the camp burst.
                 try:
-                    if execution.attack_first_in_range(snap.visible_camps, snap):
+                    abilities.defensive_cast(snap)
+                except Exception:
+                    pass
+                try:
+                    if execution.attack_first_in_range(
+                        snap.visible_camps, snap, on_target=_camp_caster(snap)
+                    ):
                         return
                 except Exception:
                     pass
@@ -802,7 +967,9 @@ class Bot:
                 ):
                     return
                 try:
-                    execution.attack_first_in_range(snap.visible_camps, snap)
+                    execution.attack_first_in_range(
+                        snap.visible_camps, snap, on_target=_camp_caster(snap)
+                    )
                 except Exception:
                     pass
                 return

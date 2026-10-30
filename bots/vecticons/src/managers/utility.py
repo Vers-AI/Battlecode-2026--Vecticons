@@ -90,7 +90,7 @@ from typing import Any
 import cambc
 
 import config
-from managers import execution, fielding, intelligence
+from managers import abilities, execution, fielding, intelligence
 from managers import observation
 
 
@@ -983,6 +983,13 @@ def _hostile_threat(snap) -> dict:
         "near": [],      # (enemy, dist, damage) - closing
         "contact_dps": 0.0,
         "near_dps": 0.0,
+        # F3a: the enemy ability burst. An enemy whose cooldowns are down
+        # is much more dangerous than its basic attack says, and every
+        # P(survive) has to know that. The burst is a ONE-SHOT number (an
+        # 8-round cooldown, not a per-turn damage source), so it enters
+        # the threat model as a single chunk.
+        "burst": 0.0,
+        "burst_by_handle": {},
     }
     px, py = snap.origin_xy
     pursue = int(config.THREAT_PURSUE_TILES)
@@ -1042,6 +1049,53 @@ def _hostile_threat(snap) -> dict:
             view["contact"].append(entry)
             view["contact_dps"] += entry[2]
         view["near_dps"] = 0.0
+    # F3a: the enemy ability burst, folded into the threat picture.
+    #
+    # FUEL: the read is ~4 engine calls per enemy (the cached ability
+    # slots, their cooldowns and the damage against us), so it is
+    # restricted to the enemies that can ACTUALLY REACH US - the threat
+    # view's contact and near lists. A far-away enemy's ability is not
+    # incoming damage, so pricing it would cost fuel and mean nothing.
+    # The cap (config.ABILITY_THREAT_ENEMY_CAP) takes the closest ones.
+    cap = int(config.ABILITY_THREAT_ENEMY_CAP)
+    if cap > 0:
+        pool = []
+        seen_handles = set()
+        for entry in list(view["contact"]) + list(view["near"]):
+            h = _enemy_handle(entry[0])
+            if h in seen_handles:
+                continue
+            seen_handles.add(h)
+            pool.append(entry)
+        pool.sort(key=lambda entry: entry[1])
+        for entry in pool[:cap]:
+            enemy = entry[0]
+            pos = entry[3]
+            try:
+                ex = int(pos.x)
+                ey = int(pos.y)
+            except Exception:
+                continue
+            try:
+                burst = abilities.enemy_burst_against(snap, enemy, ex, ey)
+            except Exception:
+                burst = 0.0
+            if burst > 0.0:
+                view["burst_by_handle"][_enemy_handle(enemy)] = burst
+    # The chunk that lands on US: the bursts of the enemies that are in
+    # contact (or closing), summed.
+    contact_handles = set()
+    for entry in view["contact"]:
+        contact_handles.add(_enemy_handle(entry[0]))
+    burst_total = 0.0
+    for handle, burst in view["burst_by_handle"].items():
+        if handle in contact_handles:
+            burst_total += burst
+    if burst_total <= 0.0 and not contact_handles:
+        # Nobody is in contact: the closest enemies' bursts are the
+        # incoming threat if they close.
+        burst_total = sum(view["burst_by_handle"].values())
+    view["burst"] = burst_total
     try:
         snap.threat_view = view
     except Exception:
@@ -1075,6 +1129,12 @@ def _threat_factor(snap, turns, view=None) -> float:
         return 1.0
     t = max(1, int(turns))
     incoming = contact_dps * t + near_dps * min(t, _T_PURSUIT_TURNS)
+    # F3a: the enemy's ready ability burst is a ONE-SHOT chunk of
+    # incoming damage (an 8-round cooldown, not a per-turn source), so
+    # it enters once, not multiplied by the action's length.
+    burst = float(view.get("burst", 0.0) or 0.0)
+    if burst > 0.0:
+        incoming += burst
     if incoming <= 0.0:
         return 1.0
     hp = float(snap.hp)
@@ -1171,7 +1231,8 @@ def _fight_win(ratio: float) -> float:
     return p
 
 
-def _fight_window(snap, enemy, dist, dmg, our_damage):
+def _fight_window(snap, enemy, dist, dmg, our_damage, ex=0, ey=0,
+                  in_range=False):
     """How long the fight lasts and how much damage we take in it.
 
     The window is not symmetric: a MELEE champion walks and attacks in
@@ -1182,6 +1243,13 @@ def _fight_window(snap, enemy, dist, dmg, our_damage):
 
     FUEL: reach/hp come from the per-turn enemy tuple cache (one engine
     build per turn in generate_candidates, plain-int reads here).
+
+    F3a (the ability layer folded in):
+      * OUR burst removes hits from the kill time - a damage spell is a
+        one-shot that shortens the fight, so the fight is priced as the
+        shorter fight it actually is.
+      * THEIR burst (the enemy's ready ability) is a one-shot chunk of
+        incoming damage, so the window carries it once.
     """
     our_reach = _our_reach(snap)
     handle = _enemy_handle(enemy)
@@ -1210,7 +1278,39 @@ def _fight_window(snap, enemy, dist, dmg, our_damage):
     their_close = dist - their_reach
     if their_close < 0:
         their_close = 0
-    hits = int(math.ceil(their_hp / max(1.0, our_damage)))
+    # F3a: our ability burst against this target.
+    #
+    # FUEL: the EXACT number (`ability_damage_against`) costs one engine
+    # read per ready damage slot, so it is read only for the enemy we
+    # are actually fighting. The other candidates (the chase targets)
+    # use the RAW focus-scaled number, which is one read for the whole
+    # turn and is close enough for an estimate that only discounts a
+    # walk.
+    our_burst = 0.0
+    try:
+        if in_range:
+            our_burst = abilities.our_burst_against(snap, enemy, ex, ey)
+        else:
+            our_burst = abilities.raw_burst_within(snap, ex, ey)
+    except Exception:
+        our_burst = 0.0
+    our_burst *= float(config.ABILITY_BURST_WEIGHT)
+    # F3a: the enemy's ready burst against US (from the threat view).
+    their_burst = 0.0
+    try:
+        view = _hostile_threat(snap)
+        their_burst = float(
+            view.get("burst_by_handle", {}).get(handle, 0.0) or 0.0
+        )
+    except Exception:
+        their_burst = 0.0
+    their_burst *= float(config.ABILITY_ENEMY_BURST_WEIGHT)
+    effective_hp = their_hp - our_burst
+    if effective_hp <= 0.0:
+        # The burst alone finishes them: one turn of the fight.
+        hits = 1
+    else:
+        hits = int(math.ceil(effective_hp / max(1.0, our_damage)))
     kill_turns = our_close + hits
     damage_turns = hits
     if their_close > 0 and their_reach <= 1:
@@ -1219,7 +1319,7 @@ def _fight_window(snap, enemy, dist, dmg, our_damage):
     return {
         "hits": hits,
         "kill_turns": kill_turns,
-        "incoming": dmg * damage_turns,
+        "incoming": dmg * damage_turns + their_burst,
     }
 
 
@@ -1372,7 +1472,8 @@ def _fight_candidates(snap, field) -> list:
         if not in_range:
             if dist > max_chase_turns:
                 continue
-        window = _fight_window(snap, enemy, dist, dmg, our_damage)
+        window = _fight_window(snap, enemy, dist, dmg, our_damage, ex, ey,
+                               in_range)
         if window is None:
             continue
         value = _kill_value(snap, enemy, ex, ey)
@@ -1561,6 +1662,13 @@ def _flee_candidates(snap) -> list:
     contact = view["contact"]
     if not contact:
         return []
+    # F3a: a ready DASH breaks contact in one turn where a walk only
+    # buys one tile, so the escape is materially more likely.
+    dash = False
+    try:
+        dash = abilities.dash_ready(snap)
+    except Exception:
+        dash = False
     best = None
     for enemy, dist, dmg, pos in contact:
         try:
@@ -1575,6 +1683,10 @@ def _flee_candidates(snap) -> list:
         # walks and attacks in the same turn.
         if reach <= 1 and dist <= 1:
             escape *= 0.5
+        if dash:
+            escape += float(config.ABILITY_DASH_ESCAPE_BONUS)
+            if escape > 0.95:
+                escape = 0.95
         score = _ev(snap, escape, float(config.FLEE_BASE_VALUE),
                     bag_in_success=True)
         if best is None or score > best[0]:
@@ -2064,6 +2176,16 @@ def _clear_map(snap) -> dict:
         cur_hp = max_hp
     if cur_hp <= 0.0:
         cur_hp = max_hp
+    # F3a: the ability burst shortens the clear. A damage spell lands
+    # ONCE per clear (an 8-round cooldown), so it removes one burst's
+    # worth of HP from the arithmetic - and that changes the "too strong
+    # to engage" verdicts the basic-attack-only estimate got wrong.
+    try:
+        camp_burst = abilities.camp_burst(snap) * float(
+            config.ABILITY_CAMP_BURST_WEIGHT
+        )
+    except Exception:
+        camp_burst = 0.0
     out = {}
     for cls in classes:
         try:
@@ -2074,7 +2196,11 @@ def _clear_map(snap) -> dict:
             continue
         clear_turns = _T_CLEAR_FLOOR
         if hp > 0.0 and team_dps > 0.0:
-            hp_turns = int(math.ceil(hp / team_dps))
+            effective = hp - camp_burst
+            if effective <= 0.0:
+                hp_turns = 1
+            else:
+                hp_turns = int(math.ceil(effective / team_dps))
             if hp_turns > clear_turns:
                 clear_turns = hp_turns
         if clear_turns < 1:

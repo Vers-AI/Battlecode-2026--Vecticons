@@ -487,6 +487,53 @@ FLEE_HP_FLOOR: float = 0.4       # the score multiplier at full health
 FLEE_ESCAPE_RANGED: float = 0.8
 FLEE_ESCAPE_MELEE: float = 0.3
 
+# ---------------------------------------------------------------------------
+# F3a - the ability layer (kit-TYPE policy: no champion names, no map names).
+# ---------------------------------------------------------------------------
+# Until F3a the bot never called cambc.cast, so every P(win), fight, flee,
+# camp-clear and threat number was built on BASIC-ATTACK math only. The
+# constants below tune the fold of the ability layer into that math.
+#
+# How many enemies' ability slots we read per turn for the THREAT model.
+# The enemy's burst is a one-shot number (an 8-round cooldown, not a
+# per-turn damage source), so only the few enemies that can actually reach
+# us are worth the engine reads. FUEL: the read is ~6 engine calls per
+# enemy, so this cap is the whole per-turn cost of the enemy half.
+ABILITY_THREAT_ENEMY_CAP: int = 2
+# The weight of OUR burst in the fight window: the burst removes hits
+# from the kill time, so the fight is priced as shorter.
+ABILITY_BURST_WEIGHT: float = 1.0
+# The weight of the ENEMY's burst in the incoming damage of a fight. The
+# enemy casts it once per fight window (an 8-round cooldown), so it enters
+# the window as a single chunk, not as a per-turn damage source.
+ABILITY_ENEMY_BURST_WEIGHT: float = 1.0
+# The weight of OUR burst in the camp-clear time estimate (a damage spell
+# shortens a clear, which changes the "too strong to engage" verdicts).
+ABILITY_CAMP_BURST_WEIGHT: float = 1.0
+# A damage spell is worth the turn when it beats our basic attack by this
+# factor. 1.0 = "at least as good as the basic attack" - a spell that
+# does less than a basic attack is not worth the turn (and most damage
+# spells cost the walk).
+ABILITY_CAST_MIN_DAMAGE_FACTOR: float = 1.0
+# The CC target priority (relative bonuses). A stun CANCELS a tribute
+# channel (GameRules: damage does not stop a tribute, a stun does), so a
+# channeler is the best stun target; then a low-HP target (a certain
+# kill); then a carrier (the kill takes the bag).
+ABILITY_CC_CHANNEL_BONUS: float = 3.0
+ABILITY_CC_LOW_HP_FRAC: float = 0.4
+ABILITY_CC_LOW_HP_BONUS: float = 2.0
+ABILITY_CC_CARRIER_BONUS: float = 1.0
+# The defensive trigger: the target must be missing at least this
+# fraction of its health for the restoration to change the outcome.
+ABILITY_HEAL_MIN_FRAC: float = 0.25
+ABILITY_SHIELD_MIN_FRAC: float = 0.25
+# The defensive trigger needs a hostile champion CLOSE (in contact or
+# one step from it). A heal against no threat is a wasted cast.
+ABILITY_DEFENSE_THREAT_FRAC: float = 1.0
+# The escape probability bonus when a DASH is ready: a dash breaks
+# contact in one turn where a walk only buys one tile.
+ABILITY_DASH_ESCAPE_BONUS: float = 0.3
+
 MONOLITH_HP: int = 20_000         # GameRules camp table (Monolith total HP).
 
 # Per-champion stat priority used when shopping on spawn tiles.

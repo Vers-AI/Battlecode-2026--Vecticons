@@ -54,7 +54,7 @@ def our_attack_tiles(snap=None):
 
 
 def attack_first_in_range(targets, snap=None, allow_excluded=False,
-                          group=None) -> bool:
+                          group=None, on_target=None) -> bool:
     """Attack the first visible target inside our attack tiles.
 
     With snap, the killable filter applies (architecture.md Stage 3 gate:
@@ -71,6 +71,11 @@ def attack_first_in_range(targets, snap=None, allow_excluded=False,
     S2.3 FUEL: the "can we attack" test is the snapshot's cached flag
     (one `me.state()` read per turn) and the attack tiles are cached on
     the snapshot too - the old code paid for both on every call.
+
+    F3a: `on_target` is an optional hook called with the target we
+    attacked, right AFTER the attack. It is how the ability layer joins
+    the basic attack in the same turn (a cast does not consume the
+    attack allowance) - the camp burst shortens a clear.
     """
     me = cambc.me()
     if not targets:
@@ -107,6 +112,11 @@ def attack_first_in_range(targets, snap=None, allow_excluded=False,
             ):
                 continue
             me.attack(target)
+            if on_target is not None:
+                try:
+                    on_target(target)
+                except Exception:
+                    pass
             return True
     return False
 

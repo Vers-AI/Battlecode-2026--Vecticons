@@ -1,0 +1,33 @@
+Using map: /tmp/opencode/f3-ability-wt/maps/00ambush.map26a
+vecticons vs starter-python on /tmp/opencode/f3-ability-wt/maps/00ambush.map26a
+Team B (starter-python) wins: round limit (2000) reached with more gems
+  team bot             gems kills deaths gold earned  crashes  draft
+  A    vecticons        231     1     32        4789        0  Ryth, Stellar, Vesper Vale, Varg, Willow
+  B    starter-python   421     2     75        3488        0  Cassi & Issac, Vesper Vale, Ren, Marcella, Ryth
+replay bundle: /tmp/opencode/f3-ability-wt/replays/vecticons-vs-starter-python-1793323794050.repl26a
+match summary: /tmp/opencode/f3-ability-wt/results/f3a-spot/00ambush.stats.json
+
+--- stderr ---
+drafting: round 0/2000
+running: round 0/2000
+running: round 100/2000
+running: round 200/2000
+running: round 300/2000
+running: round 400/2000
+running: round 500/2000
+running: round 600/2000
+running: round 700/2000
+running: round 800/2000
+running: round 900/2000
+running: round 1000/2000
+running: round 1100/2000
+running: round 1200/2000
+running: round 1300/2000
+running: round 1400/2000
+running: round 1500/2000
+running: round 1600/2000
+running: round 1700/2000
+running: round 1800/2000
+running: round 1900/2000
+running: round 2000/2000
+finished: round 2000/2000 — teamB
