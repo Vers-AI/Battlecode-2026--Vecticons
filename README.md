@@ -13,7 +13,7 @@ Status: v6 is live on the ladder (F3 closed out); F6 is merged but not submitted
 | CLI | `cambc` **4.0.0** (`pip install cambc==4.0.0`) |
 | Engine | **2.0.0** — build hash `85aa7167b44db7cea97509f55e997750520e33d644e9f4f90d6128c50eba1d21` |
 | SDK pin | `cambc.toml` → `sdk_version = "4.0.0"` |
-| Map pool | **70** maps in `maps/` (`.cambc/map-pool.json` lists them) |
+| Map pool | **128** maps in `maps/` (`.cambc/map-pool.json` lists them) |
 
 Check the engine line before trusting any campaign. Older CLI/SDK combinations fail the newer pool maps with `engine error 7` — 19 of 70 maps failed on the 3.0.4 line — and a campaign that silently drops maps corrupts every aggregate. Confirm `match.engineVersion` reads `2.0.0` in the stats file.
 
@@ -38,8 +38,9 @@ bots/vecticons/src/
 
 plan/     architecture.md — the build spec · tasks.md — the stage board + work log
 ref/      GameRules.md · BotAPIPython.md — the rules and the SDK reference
-maps/     the 70-map pool
-scripts/  run_pool.py (campaign harness) · one_map.py (single-match stdout reader)
+maps/     the 128-map pool
+scripts/  run_pool.py (campaign harness) · lab.py (the evaluation lab) · one_map.py (single-match stdout reader)
+tests/    test_lab.py (the lab's verdict unit tests)
 records/  per-stage campaign evidence
 ```
 
@@ -96,6 +97,30 @@ Control maps, which a ratchet must not break:
 | `01boss_battle` | 0 courier deaths at the sealed door |
 
 Compare runs only when the compiled bytes match. A cosmetic comment in a never-executed file once swung five per-map results by more than 100 gems, so per-map deltas inside the 100-gem noise floor mean nothing when the source differs.
+
+## The lab
+
+The lab is the agent-free version of "verify a candidate branch". It materializes the candidate and the baseline into two isolated throwaway worktrees under `/tmp/opencode/lab-runs/`, builds both with `cambc build --release`, plays the **same** map pool with the **same** instrument (`scripts/run_pool.py`, our bot vs `bots/starter-python`) on **both** sides — both fresh in the same run — and computes a machine verdict. It never touches the primary checkout, and it removes its worktrees even when it fails. `scripts/lab.py` is the whole thing; `tests/test_lab.py` holds the verdict's unit tests.
+
+**The verdict.** Two hard gates (zero `botFaults` on both sides of both aggregates; the candidate completed every map, with one documented retry per failed map) and one primary gate: the candidate record against the baseline record inside a **noise band** of `ceil(pool_size / 70)` wins — 2 wins on the 128-map pool. The band is empirical, not a guess: three different binaries of this bot all measured **58-12** on the 70-map pool (`records/f3-campaign/`, `records/f6-campaign/` and the F6 ablation in `records/f6-campaign/ablation.md`), so a binary change moves the *record* by at most one win per 70 maps. The gems, fuel and kill deltas are **reported but never gated** — the same ablation shows a build with the feature entirely REMOVED still loses 233 gems, so those totals re-roll by hundreds on any binary change. The active band and its derivation are stated in every artefact the lab writes.
+
+**By hand** (on the forge box, from a checkout):
+
+```bash
+# the full lab: candidate vs baseline, full pool, machine verdict
+python3 scripts/lab.py --candidate <branch> --baseline origin/main
+
+# the lab's own smoke check: both sides on the SAME ref, 5 maps,
+# the two aggregates must come out byte-identical
+python3 scripts/lab.py --candidate origin/main --self-test
+
+# a quick look on a handful of maps
+python3 scripts/lab.py --candidate <branch> --maps 00ambush,00anvil --label peek
+```
+
+Exit codes are the verdict: **0 = pass, 1 = fail, 2 = infra error**. Every run writes `records/lab/<label>/` — `verdict.json` (machine), `summary.md` (human: one paragraph, the comparison table, the verdict and the stated band) and `run.json` (both SHAs, timestamps, the map list and both aggregates). A lockfile (`.cambc/lab.lock`) keeps two campaigns from colliding: a second start exits 2 and names the active run, and a lock whose PID is dead or that is older than two hours is reclaimed. The lab is safe to launch from cron or systemd — no prompts, and the one `git fetch` is tolerated offline with a warning.
+
+**The PR flow.** `.github/workflows/lab.yml` is `workflow_dispatch` only: it takes a candidate ref and a baseline ref, runs the lab, uploads `records/lab/<label>/` as an artefact and publishes the summary to the job summary. It targets `runs-on: [self-hosted, forge]` — the runner on the forge box — because a full run is 2 × 128 maps of local engine (~30–40 min) and the comparison is only valid on one instrument, one host. Until that runner is registered the job waits in the queue and never runs on a GitHub-hosted runner; once it is, the flow is: open the PR → dispatch the lab with the branch as the candidate → read the verdict from the job summary and the artefact → merge on a `pass`. A `fail` is a real signal (a regression beyond the noise band); an `error` (exit 2) means the instrument broke, not that the bot did.
 
 ## Working on the bot
 

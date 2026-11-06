@@ -496,6 +496,14 @@ def info(message: str) -> None:
     print(f"[lab] {message}", flush=True)
 
 
+def unbuffer_stdout() -> None:
+    """Line-buffer the lab's own stdout (it is usually a log file)."""
+    try:
+        sys.stdout.reconfigure(line_buffering=True)
+    except (AttributeError, ValueError):
+        pass
+
+
 def git(args: list, cwd: Path | None = None, check: bool = True,
         timeout: int = 600) -> subprocess.CompletedProcess:
     proc = subprocess.run(["git", *args], cwd=str(cwd or ROOT),
@@ -625,7 +633,7 @@ def build_bot(worktree: Path, cambc: str) -> subprocess.CompletedProcess:
 def run_campaign(worktree: Path, label: str, maps: list, concurrency: int,
                  cambc: str, log_path: Path) -> tuple:
     """Play one full-pool campaign with the harness. Returns (aggregate, log)."""
-    cmd = [sys.executable, str(RUN_POOL),
+    cmd = [sys.executable, "-u", str(RUN_POOL),
            "--project-root", str(worktree),
            "--bot-a", OUR_BOT,
            "--bot-b", OPPONENT,
@@ -645,7 +653,9 @@ def run_campaign(worktree: Path, label: str, maps: list, concurrency: int,
                                 bufsize=1)
         for line in proc.stdout:
             sys.stdout.write(line)
+            sys.stdout.flush()
             log.write(line)
+            log.flush()
         rc = proc.wait()
     if rc != 0:
         raise LabError(f"campaign {label} failed (exit {rc}); see {log_path}")
@@ -1306,6 +1316,7 @@ def main(argv=None) -> int:
                     help="run both sides on the SAME ref and assert the "
                          "aggregates are byte-identical")
     args = ap.parse_args(argv)
+    unbuffer_stdout()
 
     record, code = run_lab(args)
     out_dir = write_outputs(record, Path(args.records_dir))

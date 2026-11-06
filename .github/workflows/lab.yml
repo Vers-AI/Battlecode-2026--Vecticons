@@ -1,0 +1,124 @@
+name: lab
+
+# The lab is the agent-free "plays well" evaluation: it plays the full
+# map pool with the candidate AND the baseline, on the same instrument,
+# and computes a machine verdict (scripts/lab.py).
+#
+# WHY THIS WORKFLOW IS MANUAL-ONLY FOR NOW
+# ----------------------------------------
+# A full lab run is 2 x 128 maps on the local engine — roughly 30-40
+# minutes on the 12-core forge box. A GitHub-hosted runner has neither
+# the engine's muscle nor the time budget, and the lab must run on ONE
+# instrument (the same binary, the same engine, the same host) or the
+# comparison is meaningless. So the job targets the self-hosted runner
+# that lives on the forge box:
+#
+#     runs-on: [self-hosted, forge]
+#
+# Until that runner is registered, this workflow is dispatched by hand
+# and the job simply waits in the queue - it never runs on a GitHub
+# hosted runner. The orchestrator installs the runner service; this file
+# is the part that must be correct when it does.
+
+on:
+  workflow_dispatch:
+    inputs:
+      candidate:
+        description: "Candidate git ref to evaluate (e.g. a branch name)"
+        required: true
+        type: string
+      baseline:
+        description: "Baseline git ref (the reference branch)"
+        required: false
+        default: "origin/main"
+        type: string
+      label:
+        description: "Run label — records/lab/<label> (empty = timestamped)"
+        required: false
+        default: ""
+        type: string
+
+# One lab at a time: the lab also takes its own lockfile
+# (.cambc/lab.lock), this just avoids queueing a second campaign on the
+# runner.
+concurrency:
+  group: lab
+  cancel-in-progress: false
+
+jobs:
+  lab:
+    # The self-hosted runner on the forge box. A GitHub-hosted runner is
+    # NOT enough: the campaign is ~40 minutes of local engine time.
+    runs-on: [self-hosted, forge]
+    timeout-minutes: 120
+    steps:
+      - name: How to run this by hand
+        run: |
+          echo "The lab can also be run by hand, on the forge box:"
+          echo "  python3 scripts/lab.py --candidate <ref> [--baseline <ref>]"
+          echo "It writes records/lab/<label>/{verdict.json,summary.md,run.json}"
+          echo "and exits 0 (pass), 1 (fail) or 2 (infra error)."
+
+      - uses: actions/checkout@v4
+        with:
+          # The lab materializes refs into worktrees: it needs the
+          # history and the remote refs, not a shallow clone.
+          fetch-depth: 0
+
+      - name: cambc (the pinned platform engine)
+        run: |
+          set -x
+          pip install cambc==4.0.0 || pip install --user cambc==4.0.0 || true
+          command -v cambc || true
+          cambc --version || true
+
+      - name: Choose the run label
+        id: label
+        run: |
+          label="${{ inputs.label }}"
+          if [ -z "$label" ]; then
+            label="lab-$(date -u +%Y%m%d-%H%M%S)"
+          fi
+          echo "label=$label" >> "$GITHUB_OUTPUT"
+          echo "label: $label"
+
+      - name: Run the lab
+        id: lab
+        run: |
+          python3 scripts/lab.py \
+            --candidate "${{ inputs.candidate }}" \
+            --baseline "${{ inputs.baseline }}" \
+            --label "${{ steps.label.outputs.label }}"
+        # The lab's exit code IS the verdict: 0 pass, 1 fail, 2 infra.
+        # A fail (1) must fail the job; an infra error (2) must too, but
+        # the artefacts are uploaded either way.
+
+      - name: Upload the verdict artefacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lab-${{ steps.label.outputs.label }}
+          path: records/lab/${{ steps.label.outputs.label }}/
+          if-no-files-found: warn
+
+      - name: Upload the campaign logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lab-logs-${{ steps.label.outputs.label }}
+          path: /tmp/opencode/lab-runs/
+          if-no-files-found: warn
+
+      - name: Publish the verdict
+        if: always()
+        run: |
+          label="${{ steps.label.outputs.label }}"
+          if [ -f "records/lab/$label/summary.md" ]; then
+            {
+              echo "## Lab verdict — ${label}"
+              echo ""
+              cat "records/lab/$label/summary.md"
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "no verdict was written for ${label}" >> "$GITHUB_STEP_SUMMARY"
+          fi
