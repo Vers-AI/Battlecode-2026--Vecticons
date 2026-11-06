@@ -268,7 +268,16 @@ def _fault_gate(candidate: dict, baseline: dict) -> dict:
 
 def _complete_gate(candidate: dict) -> dict:
     """The HARD completeness gate — the candidate finished every map."""
+    rows = candidate.get("rows") or []
     missing = failed_maps(candidate)
+    if not rows:
+        return {
+            "name": "candidate_complete",
+            "kind": "hard",
+            "status": "fail",
+            "missing_maps": [],
+            "detail": "the candidate campaign produced no maps at all",
+        }
     return {
         "name": "candidate_complete",
         "kind": "hard",
@@ -1012,6 +1021,7 @@ def run_lab(args) -> tuple:
         "verdict": None,
         "exit_code": None,
         "self_test": bool(args.self_test),
+        "lab": lab_provenance(),
     }
 
     lock_payload = {}
@@ -1185,8 +1195,7 @@ def run_lab(args) -> tuple:
                               "aggregates",
                 })
 
-        exit_code = EXIT_PASS if verdict["verdict"] == "pass" else (
-            EXIT_FAIL if verdict["verdict"] == "fail" else EXIT_ERROR)
+        exit_code = exit_code_for(verdict["verdict"])
         record["exit_code"] = exit_code
         return record, exit_code
 
@@ -1214,6 +1223,29 @@ def run_lab(args) -> tuple:
         record["finished_at"] = finished.strftime("%Y-%m-%dT%H:%M:%SZ")
         record["elapsed_minutes"] = round(
             (finished - started).total_seconds() / 60, 1)
+
+
+def lab_provenance() -> dict:
+    """Which lab produced this run: the repo revision + the script digest."""
+    provenance = {"script": "scripts/lab.py"}
+    try:
+        provenance["sha256"] = hashlib.sha256(
+            Path(__file__).resolve().read_bytes()).hexdigest()
+    except OSError:
+        pass
+    proc = git(["rev-parse", "HEAD"], check=False)
+    if proc.returncode == 0:
+        provenance["revision"] = proc.stdout.strip()
+    return provenance
+
+
+def exit_code_for(verdict: str) -> int:
+    """The process exit code of a verdict. PURE.
+
+    0 = pass, 1 = fail, 2 = infra error — the three outcomes are
+    distinguishable from the outside.
+    """
+    return {"pass": EXIT_PASS, "fail": EXIT_FAIL}.get(verdict, EXIT_ERROR)
 
 
 def default_label(candidate_ref: str) -> str:
