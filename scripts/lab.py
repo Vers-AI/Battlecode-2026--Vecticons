@@ -688,12 +688,28 @@ def run_campaign(worktree: Path, label: str, maps: list, concurrency: int,
 
 
 def retry_failed_maps(worktree: Path, label: str, maps: list,
-                      concurrency: int, cambc: str, log_path: Path) -> dict:
-    """The documented retry: one more campaign over the failed maps only."""
+                      concurrency: int, cambc: str, log_path: Path) -> tuple:
+    """The documented retry: one more campaign over the failed maps only.
+
+    Returns (aggregate, log_path).
+    """
     retry_label = f"{label}-retry"
-    aggregate, _ = run_campaign(worktree, retry_label, maps, concurrency,
-                                cambc, log_path)
-    return aggregate
+    aggregate, log = run_campaign(worktree, retry_label, maps, concurrency,
+                                  cambc, log_path)
+    return aggregate, log
+
+
+def keep_aggregate(worktree: Path, label: str, run_dir: Path) -> None:
+    """Copy the campaign aggregate out of the throwaway worktree.
+
+    The worktree is deleted when the run ends, so the aggregate is
+    preserved the moment it exists — a crash later cannot lose it.
+    """
+    source = worktree / "results" / label / "aggregate.json"
+    if not source.exists():
+        return
+    target = run_dir / f"{label}.aggregate.json"
+    shutil.copyfile(source, target)
 
 
 def merge_rows(base_rows: list, retry_rows: list) -> list:
@@ -994,6 +1010,7 @@ def play_side(name: str, worktree: Path, label: str, maps: list,
     """Build (already done) + play one side, with the documented retry."""
     aggregate, log = run_campaign(worktree, label, maps, concurrency, cambc,
                                   run_dir / f"{label}.campaign.log")
+    keep_aggregate(worktree, label, run_dir)
     keep_table(worktree, label, run_dir)
     missing = failed_maps(aggregate)
     retry = None
@@ -1008,6 +1025,9 @@ def play_side(name: str, worktree: Path, label: str, maps: list,
         aggregate.update(summarize_rows(aggregate["rows"]))
         still = failed_maps(aggregate)
         info(f"{name}: after the retry, {len(still)} map(s) still failed")
+        # The merged aggregate (with the retry folded in) is what counts.
+        (run_dir / f"{label}.aggregate.json").write_text(
+            json.dumps(aggregate, indent=2))
         retry = {"maps": missing, "still_failing": still,
                  "log": str(retry_log)}
     return aggregate, retry
@@ -1262,6 +1282,27 @@ def run_lab(args) -> tuple:
         }
         record["exit_code"] = EXIT_ERROR
         return record, EXIT_ERROR
+    except Exception as exc:  # noqa: BLE001 — a bug must not lose the run
+        import traceback
+
+        detail = "".join(traceback.format_exception_only(type(exc), exc))
+        record["notes"].append(f"unexpected error: {detail.strip()}")
+        record["notes"].append("traceback: " +
+                               "".join(traceback.format_exc()).strip())
+        record["error"] = detail.strip()
+        record["verdict"] = record.get("verdict") or {
+            "verdict": "error",
+            "gates": [{"name": "infrastructure", "kind": "hard",
+                       "status": "fail",
+                       "detail": f"the lab hit an unexpected error: "
+                                 f"{detail.strip()}"}],
+            "noise_band": {"rule": "not evaluated", "tolerance": None,
+                           "pool_size": record.get("pool_size", 0),
+                           "derivation": "not evaluated", "evidence": []},
+            "reported": {}, "candidate": {}, "baseline": {},
+        }
+        record["exit_code"] = EXIT_ERROR
+        return record, EXIT_ERROR
     finally:
         for worktree in reversed(worktrees):
             remove_worktree(worktree)
@@ -1321,6 +1362,14 @@ def write_outputs(record: dict, records_dir: Path) -> Path:
     for name, label in (("candidate", "lab-candidate"),
                         ("baseline", "lab-baseline")):
         agg = aggregates.get(name) or {}
+        if agg.get("rows") is None:
+            # Fall back to the copy kept in the run directory.
+            saved = Path(record["run_dir"]) / f"{label}.aggregate.json"
+            if saved.exists():
+                try:
+                    agg = json.loads(saved.read_text())
+                except ValueError:
+                    agg = {}
         if agg.get("rows") is not None:
             (out_dir / f"{name}.aggregate.json").write_text(
                 json.dumps(agg, indent=2) + "\n")
