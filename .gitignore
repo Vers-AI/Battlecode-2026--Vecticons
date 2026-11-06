@@ -36,3 +36,5 @@ records/*
 !records/f6-spot/**
 !records/f6-campaign/
 !records/f6-campaign/**
+!records/lab/
+!records/lab/**

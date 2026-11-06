@@ -1,0 +1,480 @@
+{
+  "label": "smoke-pipeline",
+  "run_id": "20261106T191103Z-531201",
+  "run_dir": "/tmp/opencode/lab-runs/20261106T191103Z-531201",
+  "started_at": "2026-11-06T19:11:03Z",
+  "finished_at": "2026-11-06T19:12:08Z",
+  "elapsed_minutes": 1.1,
+  "candidate": {
+    "ref": "origin/main",
+    "sha": "adc72ca65e67a3828aa93f64c6ed6d50e2423a7e"
+  },
+  "baseline": {
+    "ref": "origin/main",
+    "sha": "adc72ca65e67a3828aa93f64c6ed6d50e2423a7e"
+  },
+  "pool_size": 2,
+  "maps": [
+    "00ambush",
+    "00anvil"
+  ],
+  "concurrency": 6,
+  "cambc": "/mnt/forge/repos/Battlecode-2026--Vecticons/.venv/bin/cambc",
+  "cambc_version": "cambc 4.0.0",
+  "engine_version": "2.0.0",
+  "lock": {
+    "path": "/tmp/opencode/lab-wt/.cambc/lab.lock",
+    "pid": 531201,
+    "started_at": "2026-11-06T19:11:03Z",
+    "label": "smoke-pipeline",
+    "host": "acmeserver",
+    "run_dir": "/tmp/opencode/lab-wt/.cambc"
+  },
+  "notes": [
+    "git fetch --prune origin: ok"
+  ],
+  "aggregates": {
+    "candidate": {
+      "label": "lab-candidate",
+      "matches": 2,
+      "wins": 1,
+      "losses": 1,
+      "total_gems": 1308,
+      "total_fuel_exhausted": 578,
+      "total_wards": 767,
+      "total_buys": 70,
+      "total_consumables": 4,
+      "total_emblems": 54,
+      "total_kills": 16,
+      "total_opp_kills": 4,
+      "maps_with_wards": 2,
+      "bot_faults": 0,
+      "opp_bot_faults": 0,
+      "f1_counters": {
+        "cache_hits": 4977,
+        "cache_misses": 0,
+        "ev_prunes": 230,
+        "chase_commits": 96,
+        "chase_boosts": 67
+      },
+      "f3a_counters": {
+        "casts": 272,
+        "damage": 95,
+        "aoe": 140,
+        "cc": 0,
+        "heal": 1,
+        "shield": 0,
+        "dash": 13,
+        "reset": 23,
+        "champions": 8
+      },
+      "f3b_counters": {
+        "zones": 1,
+        "awake": 308,
+        "deaths": 37,
+        "holds": 0,
+        "priced": 988,
+        "fuel_update": 246469107,
+        "fuel_price": 66938940,
+        "champions": 8
+      },
+      "rows": [
+        {
+          "map": "00ambush",
+          "status": "ok",
+          "win": false,
+          "gems": 299,
+          "opp_gems": 408,
+          "camps": 56,
+          "deaths": 29,
+          "kills": 4,
+          "opp_kills": 3,
+          "fuel_exhausted": 364,
+          "wards": 398,
+          "buys": 34,
+          "consumables": 0,
+          "emblems": 30,
+          "bot_faults": 0,
+          "rounds": 2000,
+          "opp_bot_faults": 0,
+          "f1": {
+            "cache_hits": 719,
+            "cache_misses": 0,
+            "ev_prunes": 0,
+            "chase_commits": 1,
+            "chase_boosts": 0,
+            "champions": 5
+          },
+          "f3a": {
+            "casts": 94,
+            "damage": 33,
+            "aoe": 51,
+            "cc": 0,
+            "heal": 1,
+            "shield": 0,
+            "dash": 0,
+            "reset": 9,
+            "champions": 5
+          },
+          "f3b": {
+            "zones": 1,
+            "awake": 182,
+            "deaths": 27,
+            "holds": 0,
+            "priced": 762,
+            "fuel_update": 155776091,
+            "fuel_price": 49178791,
+            "champions": 5
+          },
+          "seconds": 25.5
+        },
+        {
+          "map": "00anvil",
+          "status": "ok",
+          "win": true,
+          "gems": 1009,
+          "opp_gems": 4,
+          "camps": 82,
+          "deaths": 10,
+          "kills": 12,
+          "opp_kills": 1,
+          "fuel_exhausted": 214,
+          "wards": 369,
+          "buys": 36,
+          "consumables": 4,
+          "emblems": 24,
+          "bot_faults": 0,
+          "rounds": 1949,
+          "opp_bot_faults": 0,
+          "f1": {
+            "cache_hits": 4258,
+            "cache_misses": 0,
+            "ev_prunes": 230,
+            "chase_commits": 95,
+            "chase_boosts": 67,
+            "champions": 3
+          },
+          "f3a": {
+            "casts": 178,
+            "damage": 62,
+            "aoe": 89,
+            "cc": 0,
+            "heal": 0,
+            "shield": 0,
+            "dash": 13,
+            "reset": 14,
+            "champions": 3
+          },
+          "f3b": {
+            "zones": 0,
+            "awake": 126,
+            "deaths": 10,
+            "holds": 0,
+            "priced": 226,
+            "fuel_update": 90693016,
+            "fuel_price": 17760149,
+            "champions": 3
+          },
+          "seconds": 22.9
+        }
+      ],
+      "elapsed_minutes": 0.4
+    },
+    "baseline": {
+      "label": "lab-baseline",
+      "matches": 2,
+      "wins": 1,
+      "losses": 1,
+      "total_gems": 1308,
+      "total_fuel_exhausted": 578,
+      "total_wards": 767,
+      "total_buys": 70,
+      "total_consumables": 4,
+      "total_emblems": 54,
+      "total_kills": 16,
+      "total_opp_kills": 4,
+      "maps_with_wards": 2,
+      "bot_faults": 0,
+      "opp_bot_faults": 0,
+      "f1_counters": {
+        "cache_hits": 4977,
+        "cache_misses": 0,
+        "ev_prunes": 230,
+        "chase_commits": 96,
+        "chase_boosts": 67
+      },
+      "f3a_counters": {
+        "casts": 272,
+        "damage": 95,
+        "aoe": 140,
+        "cc": 0,
+        "heal": 1,
+        "shield": 0,
+        "dash": 13,
+        "reset": 23,
+        "champions": 8
+      },
+      "f3b_counters": {
+        "zones": 1,
+        "awake": 308,
+        "deaths": 37,
+        "holds": 0,
+        "priced": 988,
+        "fuel_update": 246469107,
+        "fuel_price": 66938940,
+        "champions": 8
+      },
+      "rows": [
+        {
+          "map": "00ambush",
+          "status": "ok",
+          "win": false,
+          "gems": 299,
+          "opp_gems": 408,
+          "camps": 56,
+          "deaths": 29,
+          "kills": 4,
+          "opp_kills": 3,
+          "fuel_exhausted": 364,
+          "wards": 398,
+          "buys": 34,
+          "consumables": 0,
+          "emblems": 30,
+          "bot_faults": 0,
+          "rounds": 2000,
+          "opp_bot_faults": 0,
+          "f1": {
+            "cache_hits": 719,
+            "cache_misses": 0,
+            "ev_prunes": 0,
+            "chase_commits": 1,
+            "chase_boosts": 0,
+            "champions": 5
+          },
+          "f3a": {
+            "casts": 94,
+            "damage": 33,
+            "aoe": 51,
+            "cc": 0,
+            "heal": 1,
+            "shield": 0,
+            "dash": 0,
+            "reset": 9,
+            "champions": 5
+          },
+          "f3b": {
+            "zones": 1,
+            "awake": 182,
+            "deaths": 27,
+            "holds": 0,
+            "priced": 762,
+            "fuel_update": 155776091,
+            "fuel_price": 49178791,
+            "champions": 5
+          },
+          "seconds": 25.5
+        },
+        {
+          "map": "00anvil",
+          "status": "ok",
+          "win": true,
+          "gems": 1009,
+          "opp_gems": 4,
+          "camps": 82,
+          "deaths": 10,
+          "kills": 12,
+          "opp_kills": 1,
+          "fuel_exhausted": 214,
+          "wards": 369,
+          "buys": 36,
+          "consumables": 4,
+          "emblems": 24,
+          "bot_faults": 0,
+          "rounds": 1949,
+          "opp_bot_faults": 0,
+          "f1": {
+            "cache_hits": 4258,
+            "cache_misses": 0,
+            "ev_prunes": 230,
+            "chase_commits": 95,
+            "chase_boosts": 67,
+            "champions": 3
+          },
+          "f3a": {
+            "casts": 178,
+            "damage": 62,
+            "aoe": 89,
+            "cc": 0,
+            "heal": 0,
+            "shield": 0,
+            "dash": 13,
+            "reset": 14,
+            "champions": 3
+          },
+          "f3b": {
+            "zones": 0,
+            "awake": 126,
+            "deaths": 10,
+            "holds": 0,
+            "priced": 226,
+            "fuel_update": 90693016,
+            "fuel_price": 17760149,
+            "champions": 3
+          },
+          "seconds": 22.5
+        }
+      ],
+      "elapsed_minutes": 0.4
+    }
+  },
+  "verdict": {
+    "verdict": "pass",
+    "gates": [
+      {
+        "name": "bot_faults",
+        "kind": "hard",
+        "status": "pass",
+        "counts": {
+          "candidate_ours": 0,
+          "candidate_opponent": 0,
+          "baseline_ours": 0,
+          "baseline_opponent": 0
+        },
+        "detail": "botFaults candidate_ours=0, candidate_opponent=0, baseline_ours=0, baseline_opponent=0"
+      },
+      {
+        "name": "candidate_complete",
+        "kind": "hard",
+        "status": "pass",
+        "missing_maps": [],
+        "detail": "every map completed"
+      },
+      {
+        "name": "record_band",
+        "kind": "primary",
+        "status": "pass",
+        "detail": "candidate 1 wins vs baseline 1 (delta +0, tolerance 1)",
+        "band": {
+          "candidate_wins": 1,
+          "baseline_wins": 1,
+          "delta": 0,
+          "tolerance": 1,
+          "within_band": true,
+          "worse_beyond_band": false,
+          "improvement_anomaly": false,
+          "status": "pass",
+          "detail": "candidate 1 wins vs baseline 1 (delta +0, tolerance 1)"
+        }
+      }
+    ],
+    "noise_band": {
+      "rule": "candidate record not worse than the baseline record by more than 1 win(s) on a 2-map pool (tolerance = ceil(2 * 1/70) = 1; measured: three different binaries all recorded 58-12 on the 70-map pool)",
+      "tolerance": 1,
+      "pool_size": 2,
+      "derivation": "measured: three different binaries all recorded 58-12 on the 70-map pool, so binary-change noise on the RECORD is <= 1 win per 70 maps; tolerance = ceil(pool_size * 1/70)",
+      "evidence": [
+        "records/f3-campaign/",
+        "records/f6-campaign/",
+        "records/f6-campaign/ablation.md"
+      ],
+      "candidate_wins": 1,
+      "baseline_wins": 1,
+      "delta": 0,
+      "within_band": true,
+      "improvement_anomaly": false
+    },
+    "reported": {
+      "gems": {
+        "candidate": 1308,
+        "baseline": 1308,
+        "delta": 0,
+        "gated": false,
+        "note": "reported only, never gated: gem totals re-roll by hundreds on ANY binary change (F6 ablation: the feature REMOVED still lost 233 gems) \u2014 see records/f6-campaign/ablation.md"
+      },
+      "fuel": {
+        "candidate": 578,
+        "baseline": 578,
+        "delta": 0,
+        "gated": false,
+        "note": "reported only, never gated: gem totals re-roll by hundreds on ANY binary change (F6 ablation: the feature REMOVED still lost 233 gems) \u2014 see records/f6-campaign/ablation.md"
+      },
+      "kills": {
+        "candidate": 16,
+        "baseline": 16,
+        "delta": 0,
+        "gated": false,
+        "note": "reported only, never gated: gem totals re-roll by hundreds on ANY binary change (F6 ablation: the feature REMOVED still lost 233 gems) \u2014 see records/f6-campaign/ablation.md"
+      }
+    },
+    "candidate": {
+      "matches": 2,
+      "completed": 2,
+      "wins": 1,
+      "losses": 1,
+      "total_gems": 1308,
+      "total_fuel_exhausted": 578,
+      "total_wards": 767,
+      "total_buys": 70,
+      "total_consumables": 4,
+      "total_emblems": 54,
+      "total_kills": 16,
+      "total_opp_kills": 4,
+      "maps_with_wards": 2,
+      "bot_faults": 0,
+      "opp_bot_faults": 0,
+      "label": "lab-candidate",
+      "elapsed_minutes": 0.4
+    },
+    "baseline": {
+      "matches": 2,
+      "completed": 2,
+      "wins": 1,
+      "losses": 1,
+      "total_gems": 1308,
+      "total_fuel_exhausted": 578,
+      "total_wards": 767,
+      "total_buys": 70,
+      "total_consumables": 4,
+      "total_emblems": 54,
+      "total_kills": 16,
+      "total_opp_kills": 4,
+      "maps_with_wards": 2,
+      "bot_faults": 0,
+      "opp_bot_faults": 0,
+      "label": "lab-baseline",
+      "elapsed_minutes": 0.4
+    }
+  },
+  "exit_code": 0,
+  "self_test": false,
+  "worktrees": {
+    "candidate": "/tmp/opencode/lab-runs/20261106T191103Z-531201/candidate",
+    "baseline": "/tmp/opencode/lab-runs/20261106T191103Z-531201/baseline"
+  },
+  "map_bytes": {
+    "identical": true,
+    "replaced": [],
+    "digests": {
+      "00ambush": {
+        "candidate": "81ac8b6689f275d24e57d586f2451a160484c15144f86afd0c4450e02c39e579",
+        "baseline": "81ac8b6689f275d24e57d586f2451a160484c15144f86afd0c4450e02c39e579"
+      },
+      "00anvil": {
+        "candidate": "3fed84091b160ff09ac72a29188f91247453711e2cccbff7c9a40f774e824370",
+        "baseline": "3fed84091b160ff09ac72a29188f91247453711e2cccbff7c9a40f774e824370"
+      }
+    }
+  },
+  "candidate_build": {
+    "ok": true,
+    "returncode": 0
+  },
+  "baseline_build": {
+    "ok": true,
+    "returncode": 0
+  },
+  "retries": {
+    "candidate": null,
+    "baseline": null
+  }
+}
