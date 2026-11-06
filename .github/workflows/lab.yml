@@ -65,12 +65,15 @@ jobs:
           # history and the remote refs, not a shallow clone.
           fetch-depth: 0
 
-      - name: cambc (the pinned platform engine)
+      - name: cambc (the pinned platform engine, cached venv)
         run: |
           set -x
-          pip install cambc==4.0.0 || pip install --user cambc==4.0.0 || true
-          command -v cambc || true
-          cambc --version || true
+          if [ ! -x "$HOME/.lab-venv/bin/cambc" ]; then
+            python3 -m venv "$HOME/.lab-venv"
+            "$HOME/.lab-venv/bin/pip" install cambc==4.0.0
+          fi
+          "$HOME/.lab-venv/bin/cambc" --version
+          echo "CAMBC=$HOME/.lab-venv/bin/cambc" >> "$GITHUB_ENV"
 
       - name: Choose the run label
         id: label
