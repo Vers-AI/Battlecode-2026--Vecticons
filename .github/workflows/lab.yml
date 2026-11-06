@@ -74,8 +74,10 @@ jobs:
 
       - name: Choose the run label
         id: label
+        env:
+          REQUESTED_LABEL: ${{ inputs.label }}
         run: |
-          label="${{ inputs.label }}"
+          label="$REQUESTED_LABEL"
           if [ -z "$label" ]; then
             label="lab-$(date -u +%Y%m%d-%H%M%S)"
           fi
@@ -84,11 +86,15 @@ jobs:
 
       - name: Run the lab
         id: lab
+        env:
+          CANDIDATE: ${{ inputs.candidate }}
+          BASELINE: ${{ inputs.baseline }}
+          LABEL: ${{ steps.label.outputs.label }}
         run: |
           python3 scripts/lab.py \
-            --candidate "${{ inputs.candidate }}" \
-            --baseline "${{ inputs.baseline }}" \
-            --label "${{ steps.label.outputs.label }}"
+            --candidate "$CANDIDATE" \
+            --baseline "$BASELINE" \
+            --label "$LABEL"
         # The lab's exit code IS the verdict: 0 pass, 1 fail, 2 infra.
         # A fail (1) must fail the job; an infra error (2) must too, but
         # the artefacts are uploaded either way.
