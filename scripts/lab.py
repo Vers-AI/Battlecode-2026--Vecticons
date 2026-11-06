@@ -66,7 +66,7 @@ USAGE
 -----
     python3 scripts/lab.py --candidate <git-ref> [--baseline <git-ref>]
     python3 scripts/lab.py --candidate origin/main --baseline origin/main \\
-        --maps 00ambush,00anvil --label smoke
+        --maps <map1>,<map2> --label smoke
 
     # the lab's own smoke check: both sides on the SAME ref, 5 maps,
     # the two aggregates must be byte-identical
