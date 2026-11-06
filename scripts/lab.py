@@ -504,6 +504,27 @@ def unbuffer_stdout() -> None:
         pass
 
 
+def install_signal_handlers() -> None:
+    """Make a SIGTERM/SIGINT run the cleanup (worktrees, lockfile).
+
+    Without this a killed lab leaves its throwaway worktrees behind and
+    the lockfile in place — the next start would have to reclaim it.
+    """
+    import signal
+
+    def _terminate(signum, _frame):
+        raise SystemExit(128 + signum)
+
+    for name in ("SIGTERM", "SIGINT", "SIGHUP"):
+        signum = getattr(signal, name, None)
+        if signum is None:
+            continue
+        try:
+            signal.signal(signum, _terminate)
+        except (OSError, ValueError):
+            pass
+
+
 def git(args: list, cwd: Path | None = None, check: bool = True,
         timeout: int = 600) -> subprocess.CompletedProcess:
     proc = subprocess.run(["git", *args], cwd=str(cwd or ROOT),
@@ -1223,6 +1244,24 @@ def run_lab(args) -> tuple:
         }
         record["exit_code"] = EXIT_ERROR
         return record, EXIT_ERROR
+    except SystemExit:
+        # A signal (SIGTERM/SIGINT) reached us: the worktrees and the
+        # lockfile are released by the finally block, and the run is
+        # recorded as an infra error.
+        record["notes"].append("the lab was interrupted by a signal")
+        record["error"] = "interrupted by a signal"
+        record["verdict"] = record.get("verdict") or {
+            "verdict": "error",
+            "gates": [{"name": "infrastructure", "kind": "hard",
+                       "status": "fail",
+                       "detail": "the lab was interrupted by a signal"}],
+            "noise_band": {"rule": "not evaluated", "tolerance": None,
+                           "pool_size": record.get("pool_size", 0),
+                           "derivation": "not evaluated", "evidence": []},
+            "reported": {}, "candidate": {}, "baseline": {},
+        }
+        record["exit_code"] = EXIT_ERROR
+        return record, EXIT_ERROR
     finally:
         for worktree in reversed(worktrees):
             remove_worktree(worktree)
@@ -1317,6 +1356,7 @@ def main(argv=None) -> int:
                          "aggregates are byte-identical")
     args = ap.parse_args(argv)
     unbuffer_stdout()
+    install_signal_handlers()
 
     record, code = run_lab(args)
     out_dir = write_outputs(record, Path(args.records_dir))
