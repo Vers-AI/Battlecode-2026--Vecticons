@@ -1,0 +1,118 @@
+{
+  "verdict": "pass",
+  "gates": [
+    {
+      "name": "bot_faults",
+      "kind": "hard",
+      "status": "pass",
+      "counts": {
+        "candidate_ours": 0,
+        "candidate_opponent": 0,
+        "baseline_ours": 0,
+        "baseline_opponent": 0
+      },
+      "detail": "botFaults candidate_ours=0, candidate_opponent=0, baseline_ours=0, baseline_opponent=0"
+    },
+    {
+      "name": "candidate_complete",
+      "kind": "hard",
+      "status": "pass",
+      "missing_maps": [],
+      "detail": "every map completed"
+    },
+    {
+      "name": "record_band",
+      "kind": "primary",
+      "status": "pass",
+      "detail": "candidate 109 wins vs baseline 109 (delta +0, tolerance 2)",
+      "band": {
+        "candidate_wins": 109,
+        "baseline_wins": 109,
+        "delta": 0,
+        "tolerance": 2,
+        "within_band": true,
+        "worse_beyond_band": false,
+        "improvement_anomaly": false,
+        "status": "pass",
+        "detail": "candidate 109 wins vs baseline 109 (delta +0, tolerance 2)"
+      }
+    }
+  ],
+  "noise_band": {
+    "rule": "candidate record not worse than the baseline record by more than 2 win(s) on a 128-map pool (tolerance = ceil(128 * 1/70) = 2; measured: three different binaries all recorded 58-12 on the 70-map pool)",
+    "tolerance": 2,
+    "pool_size": 128,
+    "derivation": "measured: three different binaries all recorded 58-12 on the 70-map pool, so binary-change noise on the RECORD is <= 1 win per 70 maps; tolerance = ceil(pool_size * 1/70)",
+    "evidence": [
+      "records/f3-campaign/",
+      "records/f6-campaign/",
+      "records/f6-campaign/ablation.md"
+    ],
+    "candidate_wins": 109,
+    "baseline_wins": 109,
+    "delta": 0,
+    "within_band": true,
+    "improvement_anomaly": false
+  },
+  "reported": {
+    "gems": {
+      "candidate": 85953,
+      "baseline": 85953,
+      "delta": 0,
+      "gated": false,
+      "note": "reported only, never gated: gem totals re-roll by hundreds on ANY binary change (F6 ablation: the feature REMOVED still lost 233 gems) \u2014 see records/f6-campaign/ablation.md"
+    },
+    "fuel": {
+      "candidate": 132989,
+      "baseline": 132989,
+      "delta": 0,
+      "gated": false,
+      "note": "reported only, never gated: gem totals re-roll by hundreds on ANY binary change (F6 ablation: the feature REMOVED still lost 233 gems) \u2014 see records/f6-campaign/ablation.md"
+    },
+    "kills": {
+      "candidate": 962,
+      "baseline": 962,
+      "delta": 0,
+      "gated": false,
+      "note": "reported only, never gated: gem totals re-roll by hundreds on ANY binary change (F6 ablation: the feature REMOVED still lost 233 gems) \u2014 see records/f6-campaign/ablation.md"
+    }
+  },
+  "candidate": {
+    "matches": 128,
+    "completed": 128,
+    "wins": 109,
+    "losses": 19,
+    "total_gems": 85953,
+    "total_fuel_exhausted": 132989,
+    "total_wards": 51243,
+    "total_buys": 3248,
+    "total_consumables": 440,
+    "total_emblems": 2147,
+    "total_kills": 962,
+    "total_opp_kills": 359,
+    "maps_with_wards": 128,
+    "bot_faults": 0,
+    "opp_bot_faults": 0,
+    "label": "lab-candidate",
+    "elapsed_minutes": 21.0
+  },
+  "baseline": {
+    "matches": 128,
+    "completed": 128,
+    "wins": 109,
+    "losses": 19,
+    "total_gems": 85953,
+    "total_fuel_exhausted": 132989,
+    "total_wards": 51243,
+    "total_buys": 3248,
+    "total_consumables": 440,
+    "total_emblems": 2147,
+    "total_kills": 962,
+    "total_opp_kills": 359,
+    "maps_with_wards": 128,
+    "bot_faults": 0,
+    "opp_bot_faults": 0,
+    "label": "lab-baseline",
+    "elapsed_minutes": 21.3
+  }
+}
